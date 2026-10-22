@@ -24,9 +24,7 @@ DIAGNOSIS_INFO = {
     4: {"name": "Stage 4: Proliferative DR", "action": "Immediate emergency consultation required. High risk of permanent vision loss."}
 }
 
-# -------------------------------------------------------------------
-# GATEKEEPER: ANATOMICAL DOMAIN CHECK + STANDARDIZED BLUR & LIGHTING
-# -------------------------------------------------------------------
+# ----------------- GATEKEEPER -----------------
 def verify_retinal_anatomy(image):
     """Rejects non-eye photos (faces, objects, text, nature, etc.)"""
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -57,13 +55,11 @@ def verify_retinal_anatomy(image):
         
     return True, "Passed: Verified Authentic Retinal Fundus Scan"
 
-def assess_image_quality(image, blur_threshold=10.0, min_brightness=20.0, max_brightness=240.0):
-    # 1. Non-eye check
+def assess_image_quality(image, blur_threshold=5.0, min_brightness=20.0, max_brightness=240.0):
     is_fundus, fundus_msg = verify_retinal_anatomy(image)
     if not is_fundus:
         return False, fundus_msg, 0.0, 0.0
 
-    # 2. Standardize to 512x512 so variance is normalized across all camera resolutions
     norm_img = cv2.resize(image, (512, 512))
     gray = cv2.cvtColor(norm_img, cv2.COLOR_BGR2GRAY)
     laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
@@ -151,9 +147,7 @@ model, grad_cam, temperature, device = load_system()
 
 # ----------------- SIDEBAR CONTROLS -----------------
 st.sidebar.header("📁 Patient Fundus Input")
-
-# Mode Selection
-input_mode = st.sidebar.radio("Input Source:", ["Clinical Database (5 Cases / Stage)", "Upload Custom Scan"])
+input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
 
 img_bgr = None
 active_source_label = ""
@@ -165,35 +159,41 @@ if input_mode == "Upload Custom Scan":
         img_bgr = cv2.imdecode(file_bytes, 1)
         active_source_label = f"Uploaded File: {uploaded_file.name}"
 else:
-    # 25 Patient Database Selectors
     sel_stage = st.sidebar.selectbox(
         "Select Severity Stage:",
         ["Stage 0 (No DR)", "Stage 1 (Mild DR)", "Stage 2 (Moderate DR)", "Stage 3 (Severe DR)", "Stage 4 (Proliferative DR)"]
     )
-    sel_case = st.sidebar.selectbox(
-        "Select Patient Case:",
-        ["Patient Case 1", "Patient Case 2", "Patient Case 3", "Patient Case 4", "Patient Case 5"]
-    )
-    
     stage_num = int(sel_stage.split()[1])
-    case_num = int(sel_case.split()[-1])
     
+    # Smart Auto-Search: Scans sample_images and any subfolders automatically
+    matched_images = []
     if os.path.exists("sample_images"):
-        # Match pattern stage_X_case_Y
-        prefix = f"stage_{stage_num}_case_{case_num}"
-        matched = [f for f in os.listdir("sample_images") if f.startswith(prefix)]
-        if matched:
-            img_bgr = cv2.imread(os.path.join("sample_images", matched[0]))
-            active_source_label = f"Database: {sel_stage} — {sel_case}"
+        for root, dirs, files in os.walk("sample_images"):
+            for f in sorted(files):
+                # Matches either 'stage_0_...' or 'stage_0...'
+                if f.lower().startswith(f"stage_{stage_num}") and f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    matched_images.append(os.path.join(root, f))
+                    
+    if len(matched_images) > 0:
+        case_options = [f"Patient Case {i+1}" for i in range(len(matched_images))]
+        sel_case = st.sidebar.selectbox("Select Patient Case:", case_options)
+        case_idx = int(sel_case.split()[-1]) - 1
+        
+        chosen_path = matched_images[case_idx]
+        img_bgr = cv2.imread(chosen_path)
+        active_source_label = f"Database: {sel_stage} — {sel_case}"
+        st.sidebar.caption(f"📁 {len(matched_images)} case(s) available for Stage {stage_num}")
+    else:
+        st.sidebar.error(f"❌ No images found for Stage {stage_num} in sample_images folder.")
 
-# Gatekeeper Settings
+# Gatekeeper Settings: Default 5.0 allows standard fundus scans to pass
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Clinical Gatekeeper Settings")
 blur_threshold = st.sidebar.slider(
     "IQA Blur Sensitivity Threshold", 
-    min_value=2.0, 
+    min_value=1.0, 
     max_value=30.0, 
-    value=8.0, 
+    value=5.0, 
     step=1.0,
     help="Images with standardized blur score below this threshold are rejected."
 )
