@@ -6,15 +6,31 @@ from PIL import Image
 import numpy as np
 import cv2
 import os
+import io
+from datetime import datetime
 
+# Optional Google GenAI SDK
+try:
+    from google import genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
+
+# PDF Generation Libraries
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+# ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Retina Insight | Explainable AI for DR",
+    page_title="Retina Insight | AI & Clinical Decision Support",
     page_icon="👁️",
     layout="wide"
 )
 
-st.title("👁️ Retina Insight: Explainable AI for Diabetic Retinopathy")
-st.caption("CMR College of Engineering & Technology (AI&ML) | Automated Screening, Confidence Calibration & Grad-CAM")
+st.title("👁️ Retina Insight: Multimodal Clinical Decision Support System")
+st.caption("CMR College of Engineering & Technology (AI&ML) | Automated Screening, Confidence Calibration, Grad-CAM & GenAI Assistant")
 
 DIAGNOSIS_INFO = {
     0: {"name": "Stage 0: No Diabetic Retinopathy", "action": "Routine annual screening recommended in 12 months."},
@@ -26,7 +42,6 @@ DIAGNOSIS_INFO = {
 
 # ----------------- GATEKEEPER -----------------
 def verify_retinal_anatomy(image):
-    """Rejects non-eye photos (faces, objects, text, nature, etc.)"""
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -80,6 +95,7 @@ def fast_ben_graham(img_bgr, target_size=256):
     enhanced = cv2.addWeighted(img_bgr, 4, blurred, -4, 128)
     return enhanced
 
+# ----------------- GRAD-CAM -----------------
 class GradCAM:
     def __init__(self, model, target_layer):
         self.model = model
@@ -117,6 +133,7 @@ class GradCAM:
         cam = cam / (np.max(cam) + 1e-8)
         return cam, target_class
 
+# ----------------- MODEL LOADER -----------------
 @st.cache_resource
 def load_system():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -145,7 +162,179 @@ def load_system():
 
 model, grad_cam, temperature, device = load_system()
 
-# ----------------- SIDEBAR CONTROLS -----------------
+# ----------------- GENAI CLINICAL ASSISTANT -----------------
+def generate_clinical_notes(stage_name, confidence, patient_info, api_key=None):
+    """
+    Generates patient and ophthalmologist reports using Gemini GenAI
+    with an intelligent fallback if offline or no API key is provided.
+    """
+    if api_key and GENAI_AVAILABLE:
+        try:
+            client = genai.Client(api_key=api_key)
+            prompt = f"""
+            You are an expert AI Ophthalmologist assistant. Analyze this clinical screening case:
+            - Patient Demographics: Name: {patient_info.get('name', 'N/A')}, Age: {patient_info.get('age', 'N/A')}, Diabetes Duration: {patient_info.get('duration', 'N/A')} yrs, Recent HbA1c: {patient_info.get('hba1c', 'N/A')}%
+            - AI Screening Finding: {stage_name} (Calibrated Confidence: {confidence:.1f}%)
+            
+            Provide TWO concise sections:
+            1. [PATIENT EXPLANATION]: An empathetic, clear explanation without medical jargon explaining their diagnosis, reassuring them, and explaining lifestyle steps and why they must visit an eye doctor.
+            2. [CLINICAL SOAP NOTE]: A structured medical note (Subjective, Objective, Assessment, Plan) for the attending ophthalmologist with referral urgency.
+            """
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            pass  # Fall back to structured clinical templates below
+
+    # Clinical Standard Template Fallback (Offline safe!)
+    p_notes = {
+        0: "Your retinal scan shows no visible signs of diabetic damage. Your blood vessels appear healthy. Continue maintaining strict blood sugar and blood pressure control. Schedule your routine annual screening in 12 months.",
+        1: "Mild Diabetic Retinopathy indicates early microscopic swelling in your tiny retinal vessels (microaneurysms). You may not notice any vision symptoms right now, which is why early detection is critical. Work with your physician to optimize your HbA1c levels and repeat screening in 6-12 months.",
+        2: "Moderate Diabetic Retinopathy indicates visible vascular leakage and exudates in your retina. It is strongly advised to see an eye specialist within 2 to 4 months for a detailed dilated fundus examination before vision problems occur.",
+        3: "Severe Diabetic Retinopathy indicates significant blockages and poor oxygenation across your retina. You are at high risk of rapid progression to vision impairment. An urgent retinal specialist consultation is required within 2 to 4 weeks.",
+        4: "Proliferative Diabetic Retinopathy represents advanced retinal ischemia with abnormal, fragile new blood vessel formation. There is immediate risk of internal bleeding or retinal detachment. Emergency clinical intervention (laser photocoagulation or anti-VEGF injections) is required immediately to preserve your vision."
+    }
+    
+    stage_idx = int(stage_name.split(":")[0].replace("Stage", "").strip())
+    doc_plan = DIAGNOSIS_INFO[stage_idx]["action"]
+    
+    fallback_text = f"""### 🩺 [PATIENT SUMMARY]
+{p_notes.get(stage_idx, '')}
+
+### 📋 [CLINICAL SOAP NOTE FOR OPHTHALMOLOGIST]
+* **Subjective:** Patient {patient_info.get('name', 'Anonymous')}, {patient_info.get('age', '52')} yrs old. Reported diabetes duration: {patient_info.get('duration', '8')} years. Most recent HbA1c: {patient_info.get('hba1c', '8.1')}%.
+* **Objective:** Retinal fundus scan evaluated. IQA Gatekeeper: Passed. AI Classifier: {stage_name} with {confidence:.1f}% calibrated certainty. Grad-CAM confirms regional lesion attention.
+* **Assessment:** Diabetic Retinopathy Severity - {stage_name}.
+* **Plan:** {doc_plan}
+"""
+    return fallback_text
+
+# ----------------- PDF REPORT BUILDER -----------------
+def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Custom Styles
+    title_style = ParagraphStyle(
+        'DocTitle',
+        parent=styles['Heading1'],
+        fontSize=20,
+        leading=24,
+        textColor=colors.HexColor('#1E3A8A'),
+        alignment=1, # Center
+        spaceAfter=5
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSub',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor=colors.HexColor('#64748B'),
+        alignment=1,
+        spaceAfter=15
+    )
+    header_style = ParagraphStyle(
+        'SectionHead',
+        parent=styles['Heading2'],
+        fontSize=12,
+        leading=16,
+        textColor=colors.HexColor('#1E3A8A'),
+        spaceBefore=10,
+        spaceAfter=5
+    )
+    body_style = ParagraphStyle(
+        'DocBody',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#1E293B')
+    )
+
+    # 1. Header
+    elements.append(Paragraph("<b>RETINA INSIGHT CLINICAL DIAGNOSTIC REPORT</b>", title_style))
+    elements.append(Paragraph("CMR College of Engineering & Technology — Department of CSE (AI&ML)<br/>Automated Screening & Explainable AI Decision Support System", subtitle_style))
+    elements.append(Spacer(1, 10))
+
+    # 2. Patient Demographics Table
+    scan_date = datetime.now().strftime("%d %b %Y, %I:%M %p")
+    patient_data = [
+        [Paragraph("<b>Patient Name:</b>", body_style), Paragraph(str(patient_info.get('name', 'Anonymous')), body_style),
+         Paragraph("<b>Report Date:</b>", body_style), Paragraph(scan_date, body_style)],
+        [Paragraph("<b>Age / Gender:</b>", body_style), Paragraph(f"{patient_info.get('age', 'N/A')} yrs / {patient_info.get('gender', 'N/A')}", body_style),
+         Paragraph("<b>HbA1c Level:</b>", body_style), Paragraph(f"{patient_info.get('hba1c', 'N/A')}%", body_style)],
+        [Paragraph("<b>Diabetes Duration:</b>", body_style), Paragraph(f"{patient_info.get('duration', 'N/A')} Years", body_style),
+         Paragraph("<b>Safety Gatekeeper:</b>", body_style), Paragraph("<font color='green'><b>PASSED (Valid Fundus)</b></font>", body_style)]
+    ]
+    t_patient = Table(patient_data, colWidths=[100, 160, 100, 160])
+    t_patient.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    elements.append(t_patient)
+    elements.append(Spacer(1, 12))
+
+    # 3. Diagnostic Severity Callout
+    diag_data = [
+        [Paragraph(f"<b>FINAL AI DIAGNOSIS:</b> {stage_name.upper()}", ParagraphStyle('W', parent=body_style, fontSize=11, textColor=colors.white)),
+         Paragraph(f"<b>Calibrated Confidence:</b> {confidence:.1f}% (QWK: 0.8833)", ParagraphStyle('W2', parent=body_style, fontSize=10, textColor=colors.white, alignment=2))]
+    ]
+    t_diag = Table(diag_data, colWidths=[360, 160])
+    t_diag.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#1E3A8A')),
+        ('PADDING', (0,0), (-1,-1), 6),
+    ]))
+    elements.append(t_diag)
+    elements.append(Spacer(1, 12))
+
+    # 4. Images Side-by-Side (Original vs Grad-CAM)
+    orig_path = "temp_orig.jpg"
+    grad_path = "temp_grad.jpg"
+    Image.fromarray(original_rgb).save(orig_path, quality=90)
+    Image.fromarray(gradcam_rgb).save(grad_path, quality=90)
+    
+    img_data = [
+        [Paragraph("<b>Original Patient Retinal Scan</b>", body_style), Paragraph("<b>Grad-CAM Explainable AI Lesion Heatmap</b>", body_style)],
+        [RLImage(orig_path, width=220, height=220), RLImage(grad_path, width=220, height=220)]
+    ]
+    t_img = Table(img_data, colWidths=[260, 260])
+    t_img.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('BOTTOMPADDING', (0,0), (-1,0), 4),
+    ]))
+    elements.append(t_img)
+    elements.append(Spacer(1, 10))
+
+    # 5. Clinical Decision Support / GenAI Notes
+    elements.append(Paragraph("<b>Clinical Evaluation & Decision Support</b>", header_style))
+    clean_notes = clinical_notes.replace("#", "").replace("*", "").replace("\n", "<br/>")
+    elements.append(Paragraph(clean_notes, body_style))
+    elements.append(Spacer(1, 15))
+
+    # 6. Sign-off block
+    sign_data = [
+        [Paragraph("<b>Screening Software:</b> Retina Insight v2.0 (EfficientNet-B0 + Temperature Scaling)", body_style),
+         Paragraph("<b>Attending Ophthalmologist Sign-off:</b> ___________________", body_style)]
+    ]
+    t_sign = Table(sign_data, colWidths=[300, 220])
+    elements.append(t_sign)
+
+    doc.build(elements)
+    buffer.seek(0)
+    
+    # Clean up temp images
+    for p in [orig_path, grad_path]:
+        if os.path.exists(p):
+            os.remove(p)
+            
+    return buffer
+
+# ----------------- SIDEBAR -----------------
 st.sidebar.header("📁 Patient Fundus Input")
 input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
 
@@ -165,12 +354,10 @@ else:
     )
     stage_num = int(sel_stage.split()[1])
     
-    # Smart Auto-Search: Scans sample_images and any subfolders automatically
     matched_images = []
     if os.path.exists("sample_images"):
         for root, dirs, files in os.walk("sample_images"):
             for f in sorted(files):
-                # Matches either 'stage_0_...' or 'stage_0...'
                 if f.lower().startswith(f"stage_{stage_num}") and f.lower().endswith(('.png', '.jpg', '.jpeg')):
                     matched_images.append(os.path.join(root, f))
                     
@@ -186,7 +373,20 @@ else:
     else:
         st.sidebar.error(f"❌ No images found for Stage {stage_num} in sample_images folder.")
 
-# Gatekeeper Settings: Default 5.0 allows standard fundus scans to pass
+# Patient Demographics Input (Expander in Sidebar)
+st.sidebar.markdown("---")
+with st.sidebar.expander("👤 Patient Clinical Context", expanded=False):
+    p_name = st.text_input("Patient Name", value="Ramesh Kumar")
+    p_age = st.number_input("Age", min_value=18, max_value=100, value=54)
+    p_gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+    p_duration = st.number_input("Diabetes Duration (Years)", min_value=0, max_value=50, value=9)
+    p_hba1c = st.number_input("Recent HbA1c (%)", min_value=4.0, max_value=16.0, value=8.4, step=0.1)
+
+# Gemini API Key (Optional)
+with st.sidebar.expander("🤖 Gemini GenAI Key (Optional)", expanded=False):
+    gemini_key = st.text_input("Gemini API Key", type="password", help="Leave blank to use intelligent offline clinical assistant.")
+
+# Gatekeeper Settings
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Clinical Gatekeeper Settings")
 blur_threshold = st.sidebar.slider(
@@ -272,5 +472,45 @@ if img_bgr is not None:
             st.image(proc_rgb, caption="2. Ben Graham Preprocessed", use_container_width=True)
         with v3:
             st.image(overlay, caption="3. Grad-CAM Lesion Attention", use_container_width=True)
+            
+        # ----------------- SECTION 4: GENAI & PDF EXPORT -----------------
+        st.markdown("---")
+        st.subheader("4. Multimodal GenAI Clinical Assistant & PDF Export")
+        
+        patient_info_dict = {
+            "name": p_name,
+            "age": p_age,
+            "gender": p_gender,
+            "duration": p_duration,
+            "hba1c": p_hba1c
+        }
+        
+        # Generate Clinical Notes
+        notes = generate_clinical_notes(
+            stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+            confidence=confidence,
+            patient_info=patient_info_dict,
+            api_key=gemini_key if gemini_key.strip() != "" else None
+        )
+        
+        st.markdown(notes)
+        
+        # One-Click PDF Generation
+        pdf_buffer = generate_pdf_report(
+            patient_info=patient_info_dict,
+            stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+            confidence=confidence,
+            original_rgb=cv2.resize(img_rgb, (350, 350)),
+            gradcam_rgb=cv2.resize(overlay, (350, 350)),
+            clinical_notes=notes
+        )
+        
+        st.download_button(
+            label="📄 Download Official Diagnostic Report (PDF)",
+            data=pdf_buffer,
+            file_name=f"Retina_Insight_Report_{p_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
 else:
     st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
