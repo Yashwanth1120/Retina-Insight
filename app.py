@@ -31,22 +31,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- CUSTOM OPHTHALMIC CLINICAL THEME -----------------
+# ----------------- OPHTHALMIC CLINICAL THEME -----------------
 ophthalmic_theme = """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', sans-serif;
-    }
+    html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
 
-    /* 1. Rich Deep Retinal Cobalt Radial Gradient (No flat black!) */
     .stApp {
         background: radial-gradient(circle at 50% 0%, #0F254E 0%, #091326 45%, #050B17 100%) !important;
         color: #E2E8F0 !important;
     }
 
-    /* 2. Hide Streamlit Top Bar & Footers */
     header[data-testid="stHeader"] { display: none !important; }
     #MainMenu { display: none !important; }
     footer { display: none !important; }
@@ -56,21 +51,17 @@ ophthalmic_theme = """
     .stDeployButton { display: none !important; }
     #manage-app-button { display: none !important; }
 
-    /* 3. Main Container Spacing */
     .block-container {
         padding-top: 1.5rem !important;
         padding-bottom: 3rem !important;
         max-width: 1250px !important;
     }
 
-    /* 4. Ophthalmic Sidebar Styling */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #09142A 0%, #050B16 100%) !important;
         border-right: 1px solid rgba(56, 189, 248, 0.18) !important;
-        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4) !important;
     }
 
-    /* 5. Glowing Medical Header */
     .eye-hero-badge {
         display: inline-flex;
         align-items: center;
@@ -84,15 +75,8 @@ ophthalmic_theme = """
         border: 1px solid rgba(56, 189, 248, 0.35);
         box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
         margin-bottom: 0.6rem;
-        letter-spacing: 0.06em;
     }
-    .eye-pulse {
-        width: 8px;
-        height: 8px;
-        background: #38BDF8;
-        border-radius: 50%;
-        box-shadow: 0 0 10px #38BDF8;
-    }
+    .eye-pulse { width: 8px; height: 8px; background: #38BDF8; border-radius: 50%; box-shadow: 0 0 10px #38BDF8; }
     .eye-hero-title {
         font-size: 2.25rem;
         font-weight: 800;
@@ -102,33 +86,18 @@ ophthalmic_theme = """
         -webkit-text-fill-color: transparent;
         margin-bottom: 0.25rem;
     }
-    .eye-hero-sub {
-        font-size: 0.95rem;
-        color: #94A3B8;
-        margin-bottom: 1.5rem;
-    }
+    .eye-hero-sub { font-size: 0.95rem; color: #94A3B8; margin-bottom: 1.5rem; }
 
-    /* 6. Glassmorphic Clinical Cards */
     div[data-testid="stMetric"] {
         background: rgba(15, 27, 52, 0.65) !important;
         border: 1px solid rgba(56, 189, 248, 0.2) !important;
         border-radius: 12px !important;
         padding: 0.75rem 1rem !important;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
         backdrop-filter: blur(10px) !important;
     }
-    div[data-testid="stMetric"] label {
-        color: #94A3B8 !important;
-        font-size: 0.8rem !important;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        color: #38BDF8 !important;
-        font-size: 1.6rem !important;
-        font-weight: 700 !important;
-    }
+    div[data-testid="stMetric"] label { color: #94A3B8 !important; font-weight: 600 !important; }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { color: #38BDF8 !important; font-weight: 700 !important; }
 
-    /* 7. Section Banners with Laser Blue Trim */
     .clinical-section {
         font-size: 1.15rem;
         font-weight: 700;
@@ -142,7 +111,6 @@ ophthalmic_theme = """
         border-bottom: 1px solid rgba(56, 189, 248, 0.2);
     }
 
-    /* 8. Retinal Image Frame with Blue Optical Glow */
     div[data-testid="stImage"] {
         border-radius: 14px !important;
         overflow: hidden !important;
@@ -151,12 +119,10 @@ ophthalmic_theme = """
         box-shadow: 0 4px 20px rgba(14, 165, 233, 0.12) !important;
     }
 
-    /* 9. Action Button (Laser Blue Glow) */
     div.stDownloadButton > button {
         background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%) !important;
         color: #FFFFFF !important;
         font-weight: 700 !important;
-        font-size: 0.95rem !important;
         border-radius: 10px !important;
         border: 1px solid #38BDF8 !important;
         padding: 0.75rem 1.8rem !important;
@@ -166,21 +132,12 @@ ophthalmic_theme = """
     div.stDownloadButton > button:hover {
         background: linear-gradient(135deg, #0369A1 0%, #075985 100%) !important;
         box-shadow: 0 0 35px rgba(56, 189, 248, 0.6) !important;
-        transform: translateY(-2px) !important;
-    }
-
-    /* 10. Info / Alert Boxes */
-    div.stAlert {
-        background: rgba(15, 27, 52, 0.7) !important;
-        border: 1px solid rgba(56, 189, 248, 0.25) !important;
-        border-radius: 10px !important;
-        backdrop-filter: blur(8px) !important;
     }
     </style>
 """
 st.markdown(ophthalmic_theme, unsafe_allow_html=True)
 
-# ----------------- OPHTHALMIC HERO HEADER -----------------
+# ----------------- HERO BANNER -----------------
 st.markdown("""
     <div class="eye-hero-badge"><span class="eye-pulse"></span>CLINICAL OPHTHALMOLOGY STATION &bull; ACTIVE</div>
     <div class="eye-hero-title">Retina Insight Diagnostic Console</div>
@@ -193,6 +150,49 @@ DIAGNOSIS_INFO = {
     2: {"name": "Stage 2: Moderate DR", "color": "#F59E0B", "action": "Referral to ophthalmologist within 2-4 months for dilated eye examination."},
     3: {"name": "Stage 3: Severe DR", "color": "#F97316", "action": "Urgent retinal specialist consultation within 2-4 weeks."},
     4: {"name": "Stage 4: Proliferative DR", "color": "#EF4444", "action": "Immediate emergency consultation required. High risk of permanent vision loss."}
+}
+
+# ----------------- REALISTIC CLINICAL EHR DATABASE -----------------
+PATIENT_EHR_DB = {
+    # Stage 0: Early diabetes, well-controlled HbA1c
+    (0, 1): {"name": "Ramesh Kumar", "age": 48, "gender": "Male", "duration": 4, "hba1c": 6.8},
+    (0, 2): {"name": "Lakshmi Narayana", "age": 52, "gender": "Male", "duration": 5, "hba1c": 7.0},
+    (0, 3): {"name": "Pooja Reddy", "age": 44, "gender": "Female", "duration": 3, "hba1c": 6.5},
+    (0, 4): {"name": "Anil Verma", "age": 56, "gender": "Male", "duration": 6, "hba1c": 7.1},
+    (0, 5): {"name": "Meera Joshi", "age": 50, "gender": "Female", "duration": 4, "hba1c": 6.9},
+    (0, 6): {"name": "Kishore Chary", "age": 46, "gender": "Male", "duration": 3, "hba1c": 6.6},
+
+    # Stage 1: Mild microaneurysms, moderate duration
+    (1, 1): {"name": "Suresh Babu", "age": 53, "gender": "Male", "duration": 7, "hba1c": 7.5},
+    (1, 2): {"name": "Sunita Sharma", "age": 58, "gender": "Female", "duration": 8, "hba1c": 7.8},
+    (1, 3): {"name": "Mohammed Farooq", "age": 49, "gender": "Male", "duration": 6, "hba1c": 7.4},
+    (1, 4): {"name": "Kavitha Nair", "age": 55, "gender": "Female", "duration": 9, "hba1c": 8.0},
+    (1, 5): {"name": "Rajesh Goud", "age": 60, "gender": "Male", "duration": 7, "hba1c": 7.6},
+    (1, 6): {"name": "Swathi Iyer", "age": 52, "gender": "Female", "duration": 8, "hba1c": 7.7},
+
+    # Stage 2: Moderate DR, elevated HbA1c
+    (2, 1): {"name": "Venkat Rao", "age": 61, "gender": "Male", "duration": 11, "hba1c": 8.3},
+    (2, 2): {"name": "Ananya Sen", "age": 57, "gender": "Female", "duration": 10, "hba1c": 8.6},
+    (2, 3): {"name": "K. Srinivas", "age": 63, "gender": "Male", "duration": 12, "hba1c": 8.9},
+    (2, 4): {"name": "Deepa Sundaram", "age": 54, "gender": "Female", "duration": 9, "hba1c": 8.2},
+    (2, 5): {"name": "Harish Patel", "age": 66, "gender": "Male", "duration": 13, "hba1c": 8.7},
+    (2, 6): {"name": "Vijay Anand", "age": 62, "gender": "Male", "duration": 11, "hba1c": 8.5},
+
+    # Stage 3: Severe DR, high HbA1c, long diabetes duration
+    (3, 1): {"name": "Balaram Naidu", "age": 64, "gender": "Male", "duration": 15, "hba1c": 9.4},
+    (3, 2): {"name": "Padmavathi Bai", "age": 67, "gender": "Female", "duration": 17, "hba1c": 9.8},
+    (3, 3): {"name": "Abdul Rahim", "age": 59, "gender": "Male", "duration": 14, "hba1c": 9.2},
+    (3, 4): {"name": "Geetha Pillai", "age": 62, "gender": "Female", "duration": 16, "hba1c": 9.6},
+    (3, 5): {"name": "Chandra Shekar", "age": 68, "gender": "Male", "duration": 18, "hba1c": 10.1},
+    (3, 6): {"name": "Subba Rao", "age": 65, "gender": "Male", "duration": 15, "hba1c": 9.5},
+
+    # Stage 4: Proliferative DR, advanced chronic diabetes
+    (4, 1): {"name": "Govind Swamy", "age": 69, "gender": "Male", "duration": 22, "hba1c": 10.8},
+    (4, 2): {"name": "Sarojini Devi", "age": 71, "gender": "Female", "duration": 20, "hba1c": 11.2},
+    (4, 3): {"name": "K. Ramakrishna", "age": 65, "gender": "Male", "duration": 19, "hba1c": 10.5},
+    (4, 4): {"name": "Fatima Begum", "age": 68, "gender": "Female", "duration": 21, "hba1c": 11.0},
+    (4, 5): {"name": "Vishwa Mohan", "age": 73, "gender": "Male", "duration": 24, "hba1c": 11.5},
+    (4, 6): {"name": "N. Apparao", "age": 70, "gender": "Male", "duration": 23, "hba1c": 11.1},
 }
 
 # ----------------- GATEKEEPER -----------------
@@ -476,6 +476,7 @@ input_mode = st.sidebar.radio("Data Mode:", ["Pre-loaded Database", "Upload Cust
 
 img_bgr = None
 active_source_label = ""
+current_profile = {"name": "Anonymous Patient", "age": 55, "gender": "Male", "duration": 8, "hba1c": 8.0}
 
 if input_mode == "Upload Custom Scan":
     uploaded_file = st.sidebar.file_uploader("Upload fundus photograph (.png, .jpg)", type=["png", "jpg", "jpeg"])
@@ -500,22 +501,42 @@ else:
     if len(matched_images) > 0:
         case_options = [f"Patient Case {i+1}" for i in range(len(matched_images))]
         sel_case = st.sidebar.selectbox("Select Patient Case:", case_options)
-        case_idx = int(sel_case.split()[-1]) - 1
+        case_idx = int(sel_case.split()[-1])
         
-        chosen_path = matched_images[case_idx]
+        # Load matched image
+        chosen_path = matched_images[case_idx - 1]
         img_bgr = cv2.imread(chosen_path)
         active_source_label = f"Clinical DB: {sel_stage} — {sel_case}"
         st.sidebar.caption(f"📁 {len(matched_images)} verified case(s) on disk")
+
+        # Automatically look up realistic patient profile for this exact case!
+        if (stage_num, case_idx) in PATIENT_EHR_DB:
+            current_profile = PATIENT_EHR_DB[(stage_num, case_idx)]
+        else:
+            current_profile = {
+                "name": f"Patient #{stage_num * 10 + case_idx}",
+                "age": 45 + stage_num * 5,
+                "gender": "Male" if case_idx % 2 == 1 else "Female",
+                "duration": 4 + stage_num * 4,
+                "hba1c": round(6.5 + stage_num * 1.0 + (case_idx * 0.1), 1)
+            }
     else:
         st.sidebar.error(f"❌ No images found for Stage {stage_num}.")
 
+# ----------------- DYNAMIC PATIENT PROFILE CONTROLS -----------------
 st.sidebar.markdown("---")
-with st.sidebar.expander("👤 Patient Demographics", expanded=True):
-    p_name = st.text_input("Full Name", value="Ramesh Kumar")
-    p_age = st.number_input("Age", min_value=18, max_value=100, value=54)
-    p_gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    p_duration = st.number_input("Diabetes Duration (Years)", min_value=0, max_value=50, value=9)
-    p_hba1c = st.number_input("Recent HbA1c (%)", min_value=4.0, max_value=16.0, value=8.4, step=0.1)
+with st.sidebar.expander("👤 Patient Demographics & EHR", expanded=True):
+    # Using dynamic keys ensures values instantly refresh when switching patient cases!
+    dynamic_key = f"prof_{input_mode}_{active_source_label}"
+    p_name = st.text_input("Full Name", value=current_profile["name"], key=f"name_{dynamic_key}")
+    p_age = st.number_input("Age", min_value=18, max_value=100, value=current_profile["age"], key=f"age_{dynamic_key}")
+    
+    gender_options = ["Male", "Female", "Other"]
+    gender_idx = gender_options.index(current_profile["gender"]) if current_profile["gender"] in gender_options else 0
+    p_gender = st.selectbox("Gender", gender_options, index=gender_idx, key=f"gender_{dynamic_key}")
+    
+    p_duration = st.number_input("Diabetes Duration (Years)", min_value=0, max_value=50, value=current_profile["duration"], key=f"dur_{dynamic_key}")
+    p_hba1c = st.number_input("Recent HbA1c (%)", min_value=4.0, max_value=16.0, value=float(current_profile["hba1c"]), step=0.1, key=f"hba1c_{dynamic_key}")
 
 with st.sidebar.expander("🤖 Gemini GenAI Key (Optional)", expanded=False):
     gemini_key = st.text_input("API Key", type="password", help="Leave blank to use built-in offline clinical assistant.")
