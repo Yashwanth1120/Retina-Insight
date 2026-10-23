@@ -154,45 +154,35 @@ DIAGNOSIS_INFO = {
 
 # ----------------- REALISTIC CLINICAL EHR DATABASE -----------------
 PATIENT_EHR_DB = {
-    # Stage 0: Early diabetes, well-controlled HbA1c
     (0, 1): {"name": "Ramesh Kumar", "age": 48, "gender": "Male", "duration": 4, "hba1c": 6.8},
     (0, 2): {"name": "Lakshmi Narayana", "age": 52, "gender": "Male", "duration": 5, "hba1c": 7.0},
     (0, 3): {"name": "Pooja Reddy", "age": 44, "gender": "Female", "duration": 3, "hba1c": 6.5},
     (0, 4): {"name": "Anil Verma", "age": 56, "gender": "Male", "duration": 6, "hba1c": 7.1},
     (0, 5): {"name": "Meera Joshi", "age": 50, "gender": "Female", "duration": 4, "hba1c": 6.9},
-    (0, 6): {"name": "Kishore Chary", "age": 46, "gender": "Male", "duration": 3, "hba1c": 6.6},
 
-    # Stage 1: Mild microaneurysms, moderate duration
     (1, 1): {"name": "Suresh Babu", "age": 53, "gender": "Male", "duration": 7, "hba1c": 7.5},
     (1, 2): {"name": "Sunita Sharma", "age": 58, "gender": "Female", "duration": 8, "hba1c": 7.8},
     (1, 3): {"name": "Mohammed Farooq", "age": 49, "gender": "Male", "duration": 6, "hba1c": 7.4},
     (1, 4): {"name": "Kavitha Nair", "age": 55, "gender": "Female", "duration": 9, "hba1c": 8.0},
     (1, 5): {"name": "Rajesh Goud", "age": 60, "gender": "Male", "duration": 7, "hba1c": 7.6},
-    (1, 6): {"name": "Swathi Iyer", "age": 52, "gender": "Female", "duration": 8, "hba1c": 7.7},
 
-    # Stage 2: Moderate DR, elevated HbA1c
     (2, 1): {"name": "Venkat Rao", "age": 61, "gender": "Male", "duration": 11, "hba1c": 8.3},
     (2, 2): {"name": "Ananya Sen", "age": 57, "gender": "Female", "duration": 10, "hba1c": 8.6},
     (2, 3): {"name": "K. Srinivas", "age": 63, "gender": "Male", "duration": 12, "hba1c": 8.9},
     (2, 4): {"name": "Deepa Sundaram", "age": 54, "gender": "Female", "duration": 9, "hba1c": 8.2},
     (2, 5): {"name": "Harish Patel", "age": 66, "gender": "Male", "duration": 13, "hba1c": 8.7},
-    (2, 6): {"name": "Vijay Anand", "age": 62, "gender": "Male", "duration": 11, "hba1c": 8.5},
 
-    # Stage 3: Severe DR, high HbA1c, long diabetes duration
     (3, 1): {"name": "Balaram Naidu", "age": 64, "gender": "Male", "duration": 15, "hba1c": 9.4},
     (3, 2): {"name": "Padmavathi Bai", "age": 67, "gender": "Female", "duration": 17, "hba1c": 9.8},
     (3, 3): {"name": "Abdul Rahim", "age": 59, "gender": "Male", "duration": 14, "hba1c": 9.2},
     (3, 4): {"name": "Geetha Pillai", "age": 62, "gender": "Female", "duration": 16, "hba1c": 9.6},
     (3, 5): {"name": "Chandra Shekar", "age": 68, "gender": "Male", "duration": 18, "hba1c": 10.1},
-    (3, 6): {"name": "Subba Rao", "age": 65, "gender": "Male", "duration": 15, "hba1c": 9.5},
 
-    # Stage 4: Proliferative DR, advanced chronic diabetes
     (4, 1): {"name": "Govind Swamy", "age": 69, "gender": "Male", "duration": 22, "hba1c": 10.8},
     (4, 2): {"name": "Sarojini Devi", "age": 71, "gender": "Female", "duration": 20, "hba1c": 11.2},
     (4, 3): {"name": "K. Ramakrishna", "age": 65, "gender": "Male", "duration": 19, "hba1c": 10.5},
     (4, 4): {"name": "Fatima Begum", "age": 68, "gender": "Female", "duration": 21, "hba1c": 11.0},
     (4, 5): {"name": "Vishwa Mohan", "age": 73, "gender": "Male", "duration": 24, "hba1c": 11.5},
-    (4, 6): {"name": "N. Apparao", "age": 70, "gender": "Male", "duration": 23, "hba1c": 11.1},
 }
 
 # ----------------- GATEKEEPER -----------------
@@ -244,10 +234,27 @@ def assess_image_quality(image, blur_threshold=5.0, min_brightness=20.0, max_bri
         
     return True, "Passed: Diagnostic Quality Approved", laplacian_var, mean_brightness
 
+# Auto-Crop to normalize any uploaded image scale
+def crop_fundus_circle(image, tol=15):
+    """Crops uninformative black borders from any camera brand."""
+    if image is None:
+        return image
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    mask = gray > tol
+    if not mask.any():
+        return image
+    
+    row_mask = mask.any(axis=1)
+    col_mask = mask.any(axis=0)
+    rmin, rmax = np.where(row_mask)[0][[0, -1]]
+    cmin, cmax = np.where(col_mask)[0][[0, -1]]
+    return image[rmin:rmax+1, cmin:cmax+1]
+
 def fast_ben_graham(img_bgr, target_size=256):
-    img_bgr = cv2.resize(img_bgr, (target_size, target_size))
-    blurred = cv2.GaussianBlur(img_bgr, (0, 0), 10)
-    enhanced = cv2.addWeighted(img_bgr, 4, blurred, -4, 128)
+    cropped = crop_fundus_circle(img_bgr)
+    img_resized = cv2.resize(cropped, (target_size, target_size))
+    blurred = cv2.GaussianBlur(img_resized, (0, 0), 10)
+    enhanced = cv2.addWeighted(img_resized, 4, blurred, -4, 128)
     return enhanced
 
 # ----------------- GRAD-CAM -----------------
@@ -361,39 +368,10 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        leading=22,
-        textColor=colors.HexColor('#1E3A8A'),
-        alignment=1,
-        spaceAfter=4
-    )
-    subtitle_style = ParagraphStyle(
-        'DocSub',
-        parent=styles['Normal'],
-        fontSize=9,
-        textColor=colors.HexColor('#64748B'),
-        alignment=1,
-        spaceAfter=12
-    )
-    header_style = ParagraphStyle(
-        'SectionHead',
-        parent=styles['Heading2'],
-        fontSize=11,
-        leading=14,
-        textColor=colors.HexColor('#1E3A8A'),
-        spaceBefore=8,
-        spaceAfter=4
-    )
-    body_style = ParagraphStyle(
-        'DocBody',
-        parent=styles['Normal'],
-        fontSize=8.5,
-        leading=11,
-        textColor=colors.HexColor('#1E293B')
-    )
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=18, leading=22, textColor=colors.HexColor('#1E3A8A'), alignment=1, spaceAfter=4)
+    subtitle_style = ParagraphStyle('DocSub', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#64748B'), alignment=1, spaceAfter=12)
+    header_style = ParagraphStyle('SectionHead', parent=styles['Heading2'], fontSize=11, leading=14, textColor=colors.HexColor('#1E3A8A'), spaceBefore=8, spaceAfter=4)
+    body_style = ParagraphStyle('DocBody', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#1E293B'))
 
     elements.append(Paragraph("<b>RETINA INSIGHT CLINICAL DIAGNOSTIC REPORT</b>", title_style))
     elements.append(Paragraph("Automated Retinal Screening &amp; Explainable AI Decision Support Platform", subtitle_style))
@@ -503,13 +481,11 @@ else:
         sel_case = st.sidebar.selectbox("Select Patient Case:", case_options)
         case_idx = int(sel_case.split()[-1])
         
-        # Load matched image
         chosen_path = matched_images[case_idx - 1]
         img_bgr = cv2.imread(chosen_path)
         active_source_label = f"Clinical DB: {sel_stage} — {sel_case}"
         st.sidebar.caption(f"📁 {len(matched_images)} verified case(s) on disk")
 
-        # Automatically look up realistic patient profile for this exact case!
         if (stage_num, case_idx) in PATIENT_EHR_DB:
             current_profile = PATIENT_EHR_DB[(stage_num, case_idx)]
         else:
@@ -523,10 +499,8 @@ else:
     else:
         st.sidebar.error(f"❌ No images found for Stage {stage_num}.")
 
-# ----------------- DYNAMIC PATIENT PROFILE CONTROLS -----------------
 st.sidebar.markdown("---")
 with st.sidebar.expander("👤 Patient Demographics & EHR", expanded=True):
-    # Using dynamic keys ensures values instantly refresh when switching patient cases!
     dynamic_key = f"prof_{input_mode}_{active_source_label}"
     p_name = st.text_input("Full Name", value=current_profile["name"], key=f"name_{dynamic_key}")
     p_age = st.number_input("Age", min_value=18, max_value=100, value=current_profile["age"], key=f"age_{dynamic_key}")
@@ -604,20 +578,36 @@ if img_bgr is not None:
         heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
         overlay = cv2.addWeighted(proc_rgb, 0.6, heatmap_colored, 0.4, 0)
         
-        # 2. DIAGNOSTIC RESULTS
+        # 2. DIAGNOSTIC RESULTS & RISK STRATIFICATION
         st.markdown('<div class="clinical-section">📊 2. Diagnostic Severity Grading & Calibrated Confidence</div>', unsafe_allow_html=True)
         
+        top2_idx = np.argsort(calibrated_probs)[::-1][:2]
+        primary_class = int(top2_idx[0])
+        secondary_class = int(top2_idx[1])
+        secondary_conf = calibrated_probs[secondary_class] * 100
+        
+        # Determine Vision-Threatening DR (VTDR) Status
+        is_vtdr = primary_class in [3, 4] or (primary_class == 2 and calibrated_probs[3] + calibrated_probs[4] > 0.35)
+        
+        if is_vtdr:
+            st.error("🚨 **CLINICAL STATUS: VISION-THREATENING DIABETIC RETINOPATHY (VTDR) DETECTED**\nImmediate specialist laser or anti-VEGF intervention recommended.")
+        elif primary_class == 2:
+            st.warning("⚠️ **CLINICAL STATUS: REFERABLE DIABETIC RETINOPATHY (RDR)**\nSpecialist ophthalmologist dilated examination required within 2-4 months.")
+        else:
+            st.success("✅ **CLINICAL STATUS: NON-REFERABLE DIABETIC RETINOPATHY**\nStandard annual screening protocol applicable.")
+            
         res1, res2 = st.columns([1.2, 1.8])
         with res1:
-            stage_color = DIAGNOSIS_INFO[pred_class]['color']
+            stage_color = DIAGNOSIS_INFO[primary_class]['color']
             st.markdown(f"""
-                <div style="background: rgba(15, 27, 52, 0.7); border-left: 5px solid {stage_color}; border-radius: 10px; padding: 14px; margin-bottom: 14px; border-top: 1px solid rgba(56,189,248,0.15); border-right: 1px solid rgba(56,189,248,0.15); border-bottom: 1px solid rgba(56,189,248,0.15);">
-                    <div style="font-size: 1.35rem; font-weight: 800; color: #FFFFFF;">{DIAGNOSIS_INFO[pred_class]['name']}</div>
-                    <div style="font-size: 0.95rem; color: #94A3B8; margin-top: 4px;">Calibrated Probability: <b style="color: {stage_color}; font-size: 1.15rem;">{confidence:.2f}%</b></div>
+                <div style="background: rgba(15, 27, 52, 0.7); border-left: 5px solid {stage_color}; border-radius: 10px; padding: 14px; margin-bottom: 12px; border-top: 1px solid rgba(56,189,248,0.15); border-right: 1px solid rgba(56,189,248,0.15); border-bottom: 1px solid rgba(56,189,248,0.15);">
+                    <div style="font-size: 1.35rem; font-weight: 800; color: #FFFFFF;">{DIAGNOSIS_INFO[primary_class]['name']}</div>
+                    <div style="font-size: 0.95rem; color: #94A3B8; margin-top: 4px;">Primary Calibrated Confidence: <b style="color: {stage_color}; font-size: 1.15rem;">{confidence:.2f}%</b></div>
+                    <div style="font-size: 0.85rem; color: #64748B; margin-top: 4px;">Secondary Differential: <b>Stage {secondary_class} ({secondary_conf:.1f}%)</b></div>
                 </div>
             """, unsafe_allow_html=True)
             st.progress(min(int(confidence), 100))
-            st.info(f"**Action:** {DIAGNOSIS_INFO[pred_class]['action']}")
+            st.info(f"**Action:** {DIAGNOSIS_INFO[primary_class]['action']}")
             
         with res2:
             chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
@@ -629,7 +619,7 @@ if img_bgr is not None:
         with v1:
             st.image(img_rgb, caption="1. Original Fundus Scan", use_container_width=True)
         with v2:
-            st.image(proc_rgb, caption="2. Color-Normalized Contrast", use_container_width=True)
+            st.image(proc_rgb, caption="2. Color-Normalized Contrast (Auto-Cropped)", use_container_width=True)
         with v3:
             st.image(overlay, caption="3. Grad-CAM Lesion Overlay", use_container_width=True)
             
@@ -645,8 +635,8 @@ if img_bgr is not None:
         }
         
         notes_text, is_gemini = generate_clinical_notes(
-            stage_idx=pred_class,
-            stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+            stage_idx=primary_class,
+            stage_name=DIAGNOSIS_INFO[primary_class]['name'],
             confidence=confidence,
             patient_info=patient_info_dict,
             api_key=gemini_key.strip() if gemini_key else None
@@ -662,7 +652,7 @@ if img_bgr is not None:
         try:
             pdf_bytes = generate_pdf_report(
                 patient_info=patient_info_dict,
-                stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+                stage_name=DIAGNOSIS_INFO[primary_class]['name'],
                 confidence=confidence,
                 original_rgb=cv2.resize(img_rgb, (300, 300)),
                 gradcam_rgb=cv2.resize(overlay, (300, 300)),
