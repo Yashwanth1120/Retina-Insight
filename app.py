@@ -25,13 +25,60 @@ from reportlab.lib import colors
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Retina Insight | AI & Clinical Decision Support",
+    page_title="Retina Insight | Clinical Decision Support",
     page_icon="👁️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("👁️ Retina Insight: Multimodal Clinical Decision Support System")
-st.caption("CMR College of Engineering & Technology (AI&ML) | Automated Screening, Confidence Calibration, Grad-CAM & GenAI Assistant")
+# ----------------- HIDE ALL STREAMLIT & GITHUB ICONS / HEADERS -----------------
+hide_all_branding = """
+    <style>
+    /* Hide top header bar, GitHub icons, Share, Deploy */
+    header[data-testid="stHeader"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+    #MainMenu {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    footer {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    div[data-testid="stToolbar"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    div[data-testid="stDecoration"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    div[data-testid="stStatusWidget"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    .stDeployButton {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    #manage-app-button {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    /* Adjust top padding since header is hidden */
+    .block-container {
+        padding-top: 1.5rem !important;
+    }
+    </style>
+"""
+st.markdown(hide_all_branding, unsafe_allow_html=True)
+
+# ----------------- CLEAN PROFESSIONAL HEADER (NO COLLEGE LINES) -----------------
+st.title("👁️ Retina Insight: Clinical Decision Support Platform")
+st.caption("AI-Powered Automated Screening, Confidence Calibration, Grad-CAM Lesion Localization & Multimodal Diagnostics")
 
 DIAGNOSIS_INFO = {
     0: {"name": "Stage 0: No Diabetic Retinopathy", "action": "Routine annual screening recommended in 12 months."},
@@ -184,7 +231,6 @@ def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api
         except Exception:
             pass
 
-    # Intelligent offline clinical standard fallback
     patient_messages = {
         0: "Your retinal scan indicates healthy retinal tissue without diabetic microvascular damage. Continue optimal blood sugar management and schedule regular screening in 12 months.",
         1: "Early signs of mild diabetic retinopathy (microaneurysms) were observed. Vision is typically unaffected at this stage. Work closely with your physician to manage blood sugar and repeat screening in 6 to 12 months.",
@@ -201,7 +247,7 @@ def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api
     full_text = f"### 🧑‍⚕️ Patient Summary\n{patient_messages.get(stage_idx, '')}\n\n### 📋 Clinical SOAP Note\n{soap_note}"
     return full_text, False
 
-# ----------------- CRASH-PROOF PDF REPORT BUILDER -----------------
+# ----------------- CLEAN PDF REPORT BUILDER -----------------
 def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -242,12 +288,10 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
         textColor=colors.HexColor('#1E293B')
     )
 
-    # 1. Header (Escaped to prevent XML entity bugs)
     elements.append(Paragraph("<b>RETINA INSIGHT CLINICAL DIAGNOSTIC REPORT</b>", title_style))
-    elements.append(Paragraph("CMR College of Engineering &amp; Technology — Department of CSE (AI&amp;ML)<br/>Automated Screening &amp; Explainable AI Decision Support System", subtitle_style))
+    elements.append(Paragraph("Automated Retinal Screening &amp; Explainable AI Decision Support Platform", subtitle_style))
     elements.append(Spacer(1, 8))
 
-    # 2. Patient Demographics Table
     scan_date = datetime.now().strftime("%d %b %Y, %I:%M %p")
     p_name_esc = html.escape(str(patient_info.get('name', 'Anonymous')))
     patient_data = [
@@ -269,7 +313,6 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(t_patient)
     elements.append(Spacer(1, 10))
 
-    # 3. Diagnostic Severity Callout
     diag_data = [
         [Paragraph(f"<b>FINAL AI DIAGNOSIS:</b> {html.escape(stage_name.upper())}", ParagraphStyle('W', parent=body_style, fontSize=10, textColor=colors.white)),
          Paragraph(f"<b>Calibrated Confidence:</b> {confidence:.1f}% (QWK: 0.8833)", ParagraphStyle('W2', parent=body_style, fontSize=9.5, textColor=colors.white, alignment=2))]
@@ -282,7 +325,6 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(t_diag)
     elements.append(Spacer(1, 10))
 
-    # 4. Images Side-by-Side
     orig_path = "temp_orig.jpg"
     grad_path = "temp_grad.jpg"
     Image.fromarray(original_rgb).save(orig_path, quality=90)
@@ -300,13 +342,11 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(t_img)
     elements.append(Spacer(1, 8))
 
-    # 5. Clinical Evaluation Notes (Sanitized)
     elements.append(Paragraph("<b>Clinical Evaluation &amp; Decision Support</b>", header_style))
     safe_notes = html.escape(clinical_notes_text).replace("\n", "<br/>")
     elements.append(Paragraph(safe_notes, body_style))
     elements.append(Spacer(1, 12))
 
-    # 6. Sign-off block
     sign_data = [
         [Paragraph("<b>Screening Software:</b> Retina Insight v2.0", body_style),
          Paragraph("<b>Attending Ophthalmologist Sign-off:</b> ___________________", body_style)]
@@ -323,7 +363,7 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
             
     return buffer
 
-# ----------------- SIDEBAR -----------------
+# ----------------- SIDEBAR CONTROLS (ONLY ONE CLEAN SIDEBAR) -----------------
 st.sidebar.header("📁 Patient Fundus Input")
 input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
 
@@ -489,9 +529,7 @@ if img_bgr is not None:
             
         st.markdown(notes_text)
         
-        # Build PDF Button
         st.markdown("#### 📄 Export Official Hospital Diagnostic Document")
-        
         try:
             pdf_bytes = generate_pdf_report(
                 patient_info=patient_info_dict,
