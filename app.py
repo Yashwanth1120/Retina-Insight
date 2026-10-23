@@ -251,8 +251,8 @@ def crop_fundus_circle(image, tol=15):
     return image[rmin:rmax+1, cmin:cmax+1]
 
 def fast_ben_graham(img_bgr, target_size=256):
-    cropped = crop_fundus_circle(img_bgr)
-    img_resized = cv2.resize(cropped, (target_size, target_size))
+    # Standard Clinical Pipeline: Direct resize without border-cropping (preserves lesion scale)
+    img_resized = cv2.resize(img_bgr, (target_size, target_size))
     blurred = cv2.GaussianBlur(img_resized, (0, 0), 10)
     enhanced = cv2.addWeighted(img_resized, 4, blurred, -4, 128)
     return enhanced
@@ -619,7 +619,7 @@ if img_bgr is not None:
         with v1:
             st.image(img_rgb, caption="1. Original Fundus Scan", use_container_width=True)
         with v2:
-            st.image(proc_rgb, caption="2. Color-Normalized Contrast (Auto-Cropped)", use_container_width=True)
+            st.image(proc_rgb, caption="2. Color-Normalized Contrast (Ben Graham Preprocessed)", use_container_width=True)
         with v3:
             st.image(overlay, caption="3. Grad-CAM Lesion Overlay", use_container_width=True)
             
