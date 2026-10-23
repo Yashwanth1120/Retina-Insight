@@ -25,22 +25,28 @@ from reportlab.lib import colors
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
-    page_title="Retina Insight | Clinical Decision Support",
+    page_title="Retina Insight | Clinical Diagnostic Station",
     page_icon="👁️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# ----------------- CUSTOM CLINICAL MEDICAL CSS THEME -----------------
-custom_medical_theme = """
+# ----------------- CUSTOM OPHTHALMIC CLINICAL THEME -----------------
+ophthalmic_theme = """
     <style>
-    /* 1. Global Reset & Fonts */
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    
     html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        font-family: 'Plus Jakarta Sans', sans-serif;
     }
 
-    /* 2. Hide Streamlit Branding & Top Bars */
+    /* 1. Rich Deep Retinal Cobalt Radial Gradient (No flat black!) */
+    .stApp {
+        background: radial-gradient(circle at 50% 0%, #0F254E 0%, #091326 45%, #050B17 100%) !important;
+        color: #E2E8F0 !important;
+    }
+
+    /* 2. Hide Streamlit Top Bar & Footers */
     header[data-testid="stHeader"] { display: none !important; }
     #MainMenu { display: none !important; }
     footer { display: none !important; }
@@ -52,122 +58,133 @@ custom_medical_theme = """
 
     /* 3. Main Container Spacing */
     .block-container {
-        padding-top: 1.8rem !important;
+        padding-top: 1.5rem !important;
         padding-bottom: 3rem !important;
         max-width: 1250px !important;
     }
 
-    /* 4. Hero Header Styling */
-    .hero-title {
-        font-size: 2.1rem;
+    /* 4. Ophthalmic Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #09142A 0%, #050B16 100%) !important;
+        border-right: 1px solid rgba(56, 189, 248, 0.18) !important;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* 5. Glowing Medical Header */
+    .eye-hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(14, 165, 233, 0.12);
+        color: #38BDF8;
+        font-size: 0.78rem;
         font-weight: 700;
-        letter-spacing: -0.02em;
-        background: linear-gradient(135deg, #38BDF8 0%, #818CF8 100%);
+        padding: 4px 14px;
+        border-radius: 9999px;
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+        margin-bottom: 0.6rem;
+        letter-spacing: 0.06em;
+    }
+    .eye-pulse {
+        width: 8px;
+        height: 8px;
+        background: #38BDF8;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #38BDF8;
+    }
+    .eye-hero-title {
+        font-size: 2.25rem;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        background: linear-gradient(135deg, #FFFFFF 20%, #7DD3FC 60%, #38BDF8 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
+        margin-bottom: 0.25rem;
     }
-    .hero-subtitle {
+    .eye-hero-sub {
         font-size: 0.95rem;
         color: #94A3B8;
         margin-bottom: 1.5rem;
     }
-    .badge-online {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(16, 185, 129, 0.12);
-        color: #34D399;
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 3px 10px;
-        border-radius: 9999px;
-        border: 1px solid rgba(16, 185, 129, 0.25);
-        margin-bottom: 0.75rem;
+
+    /* 6. Glassmorphic Clinical Cards */
+    div[data-testid="stMetric"] {
+        background: rgba(15, 27, 52, 0.65) !important;
+        border: 1px solid rgba(56, 189, 248, 0.2) !important;
+        border-radius: 12px !important;
+        padding: 0.75rem 1rem !important;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2) !important;
+        backdrop-filter: blur(10px) !important;
     }
-    .badge-dot {
-        width: 7px;
-        height: 7px;
-        background: #10B981;
-        border-radius: 50%;
-        box-shadow: 0 0 8px #10B981;
+    div[data-testid="stMetric"] label {
+        color: #94A3B8 !important;
+        font-size: 0.8rem !important;
+        font-weight: 600 !important;
+    }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #38BDF8 !important;
+        font-size: 1.6rem !important;
+        font-weight: 700 !important;
     }
 
-    /* 5. Clinical Metric Cards */
-    .clinical-card {
-        background: #131B2E;
-        border: 1px solid #1E293B;
-        border-radius: 12px;
-        padding: 1rem 1.25rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-    .metric-value {
-        font-size: 1.7rem;
-        font-weight: 700;
-        color: #F8FAFC;
-    }
-    .metric-label {
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: #94A3B8;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    /* 6. Section Headers */
-    .section-header {
+    /* 7. Section Banners with Laser Blue Trim */
+    .clinical-section {
         font-size: 1.15rem;
-        font-weight: 600;
-        color: #E2E8F0;
+        font-weight: 700;
+        color: #F1F5F9;
         display: flex;
         align-items: center;
         gap: 8px;
-        margin-top: 1.5rem;
-        margin-bottom: 0.75rem;
-        border-bottom: 1px solid #1E293B;
+        margin-top: 1.8rem;
+        margin-bottom: 0.9rem;
         padding-bottom: 0.5rem;
+        border-bottom: 1px solid rgba(56, 189, 248, 0.2);
     }
 
-    /* 7. Image Container Cards */
+    /* 8. Retinal Image Frame with Blue Optical Glow */
     div[data-testid="stImage"] {
-        border-radius: 10px;
-        overflow: hidden;
-        border: 1px solid #1E293B;
-        background: #0B0F19;
+        border-radius: 14px !important;
+        overflow: hidden !important;
+        border: 1px solid rgba(56, 189, 248, 0.25) !important;
+        background: #060D1A !important;
+        box-shadow: 0 4px 20px rgba(14, 165, 233, 0.12) !important;
     }
 
-    /* 8. Download Report Button */
+    /* 9. Action Button (Laser Blue Glow) */
     div.stDownloadButton > button {
-        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+        background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%) !important;
         color: #FFFFFF !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
         border-radius: 10px !important;
-        border: 1px solid #3B82F6 !important;
-        padding: 0.65rem 1.5rem !important;
-        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
-        transition: all 0.2s ease !important;
+        border: 1px solid #38BDF8 !important;
+        padding: 0.75rem 1.8rem !important;
+        box-shadow: 0 0 25px rgba(14, 165, 233, 0.4) !important;
+        transition: all 0.25s ease !important;
     }
     div.stDownloadButton > button:hover {
-        background: linear-gradient(135deg, #1D4ED8 0%, #1E40AF 100%) !important;
-        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
-        transform: translateY(-1px) !important;
+        background: linear-gradient(135deg, #0369A1 0%, #075985 100%) !important;
+        box-shadow: 0 0 35px rgba(56, 189, 248, 0.6) !important;
+        transform: translateY(-2px) !important;
     }
 
-    /* 9. Sidebar Customization */
-    section[data-testid="stSidebar"] {
-        background-color: #0D1322 !important;
-        border-right: 1px solid #1E293B !important;
+    /* 10. Info / Alert Boxes */
+    div.stAlert {
+        background: rgba(15, 27, 52, 0.7) !important;
+        border: 1px solid rgba(56, 189, 248, 0.25) !important;
+        border-radius: 10px !important;
+        backdrop-filter: blur(8px) !important;
     }
     </style>
 """
-st.markdown(custom_medical_theme, unsafe_allow_html=True)
+st.markdown(ophthalmic_theme, unsafe_allow_html=True)
 
-# ----------------- HERO BANNER -----------------
+# ----------------- OPHTHALMIC HERO HEADER -----------------
 st.markdown("""
-    <div class="badge-online"><span class="badge-dot"></span>CLINICAL AI ACTIVE &bull; EFFICIENTNET-B0 BACKBONE</div>
-    <div class="hero-title">Retina Insight Diagnostic Platform</div>
-    <div class="hero-subtitle">Automated Screening, Uncertainty Calibration, Grad-CAM Lesion Heatmaps & Multimodal Clinical Decision Support</div>
+    <div class="eye-hero-badge"><span class="eye-pulse"></span>CLINICAL OPHTHALMOLOGY STATION &bull; ACTIVE</div>
+    <div class="eye-hero-title">Retina Insight Diagnostic Console</div>
+    <div class="eye-hero-sub">AI-Assisted Diabetic Retinopathy Screening, Uncertainty Calibration & Grad-CAM Optical Localization</div>
 """, unsafe_allow_html=True)
 
 DIAGNOSIS_INFO = {
@@ -310,7 +327,7 @@ def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api
             Patient: {patient_info.get('name')}, Age: {patient_info.get('age')}, Duration of diabetes: {patient_info.get('duration')} yrs, HbA1c: {patient_info.get('hba1c')}%.
             Screening Diagnosis: {stage_name} with {confidence:.1f}% calibrated confidence.
             Provide two clear sections:
-            1. [PATIENT EXPLANATION]: Clear, empathetic explanation without medical jargon.
+            1. [PATIENT EXPLANATION]: Clear, empathetic explanation without jargon.
             2. [CLINICAL SOAP NOTE]: Subjective, Objective, Assessment, Plan for attending doctor.
             """
             response = client.models.generate_content(
@@ -526,8 +543,8 @@ if img_bgr is not None:
     st.info(f"🔍 **Active Diagnostic Target:** `{active_source_label}`")
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     
-    # SECTION 1: GATEKEEPER
-    st.markdown('<div class="section-header">🛡️ 1. Clinical Gatekeeper (Anatomical & Optical Quality Inspection)</div>', unsafe_allow_html=True)
+    # 1. GATEKEEPER
+    st.markdown('<div class="clinical-section">🛡️ 1. Clinical Gatekeeper (Anatomical & Optical Quality Inspection)</div>', unsafe_allow_html=True)
     is_valid, msg, blur_val, bright_val = assess_image_quality(img_bgr, blur_threshold=blur_threshold)
     
     col1, col2, col3 = st.columns(3)
@@ -566,27 +583,27 @@ if img_bgr is not None:
         heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
         overlay = cv2.addWeighted(proc_rgb, 0.6, heatmap_colored, 0.4, 0)
         
-        # SECTION 2: DIAGNOSIS
-        st.markdown('<div class="section-header">📊 2. Diagnostic Severity Grading & Calibrated Confidence</div>', unsafe_allow_html=True)
+        # 2. DIAGNOSTIC RESULTS
+        st.markdown('<div class="clinical-section">📊 2. Diagnostic Severity Grading & Calibrated Confidence</div>', unsafe_allow_html=True)
         
         res1, res2 = st.columns([1.2, 1.8])
         with res1:
             stage_color = DIAGNOSIS_INFO[pred_class]['color']
             st.markdown(f"""
-                <div style="border-left: 4px solid {stage_color}; padding-left: 12px; margin-bottom: 12px;">
-                    <div style="font-size: 1.3rem; font-weight: 700; color: #F8FAFC;">{DIAGNOSIS_INFO[pred_class]['name']}</div>
-                    <div style="font-size: 0.9rem; color: #94A3B8;">Calibrated Probability: <b style="color: {stage_color};">{confidence:.2f}%</b></div>
+                <div style="background: rgba(15, 27, 52, 0.7); border-left: 5px solid {stage_color}; border-radius: 10px; padding: 14px; margin-bottom: 14px; border-top: 1px solid rgba(56,189,248,0.15); border-right: 1px solid rgba(56,189,248,0.15); border-bottom: 1px solid rgba(56,189,248,0.15);">
+                    <div style="font-size: 1.35rem; font-weight: 800; color: #FFFFFF;">{DIAGNOSIS_INFO[pred_class]['name']}</div>
+                    <div style="font-size: 0.95rem; color: #94A3B8; margin-top: 4px;">Calibrated Probability: <b style="color: {stage_color}; font-size: 1.15rem;">{confidence:.2f}%</b></div>
                 </div>
             """, unsafe_allow_html=True)
             st.progress(min(int(confidence), 100))
-            st.info(f"**Recommended Action:** {DIAGNOSIS_INFO[pred_class]['action']}")
+            st.info(f"**Action:** {DIAGNOSIS_INFO[pred_class]['action']}")
             
         with res2:
             chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
             st.bar_chart(chart_data)
 
-        # SECTION 3: GRAD-CAM
-        st.markdown('<div class="section-header">🔬 3. Explainable AI (XAI) — Pathological Lesion Attention Maps</div>', unsafe_allow_html=True)
+        # 3. GRAD-CAM
+        st.markdown('<div class="clinical-section">🔬 3. Explainable AI (XAI) — Pathological Lesion Attention Maps</div>', unsafe_allow_html=True)
         v1, v2, v3 = st.columns(3)
         with v1:
             st.image(img_rgb, caption="1. Original Fundus Scan", use_container_width=True)
@@ -595,8 +612,8 @@ if img_bgr is not None:
         with v3:
             st.image(overlay, caption="3. Grad-CAM Lesion Overlay", use_container_width=True)
             
-        # SECTION 4: GENAI & PDF
-        st.markdown('<div class="section-header">📋 4. Multimodal GenAI Clinical Notes & Official Report Export</div>', unsafe_allow_html=True)
+        # 4. GENAI & PDF
+        st.markdown('<div class="clinical-section">📋 4. Multimodal GenAI Clinical Notes & Official Report Export</div>', unsafe_allow_html=True)
         
         patient_info_dict = {
             "name": p_name,
