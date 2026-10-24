@@ -4,3 +4,6 @@ __pycache__/
 .ipynb_checkpoints/
 .env
 temp_*.jpg
+test_images/
+eval_*/
+__pycache__/

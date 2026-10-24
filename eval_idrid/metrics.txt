@@ -1,0 +1,32 @@
+Images evaluated: 103   (temperature T = 1.3782)
+Accuracy: 27.18%   Within +/-1 stage: 83.50%   Mean abs. stage error: 1.000
+Quadratic weighted kappa (QWK): 0.4701
+Over-graded (pred > true): 49   Under-graded (pred < true): 26
+
+Confusion matrix (rows = true, columns = predicted):
+[[ 6 21  2  5  0]
+ [ 1  2  0  2  0]
+ [ 0 11  3 17  1]
+ [ 1  1  1 15  1]
+ [ 1  3  1  6  2]]
+
+Stage                 N     Sens     Spec     Prec       F1
+0 No DR              34    17.6%    95.7%    66.7%    27.9%
+1 Mild                5    40.0%    63.3%     5.3%     9.3%
+2 Moderate           32     9.4%    94.4%    42.9%    15.4%
+3 Severe             19    78.9%    64.3%    33.3%    46.9%
+4 Proliferative      13    15.4%    97.8%    50.0%    23.5%
+
+Referable DR (stage >= 2 vs < 2):
+  Sensitivity: 73.4%   Specificity: 76.9%   AUC: 0.8810   (TP=47 FN=17 TN=30 FP=9)
+
+Calibration:
+  ECE before scaling: 34.99%   after: 25.67%
+  NLL before scaling: 1.6814   after: 1.5208
+
+Accuracy by confidence level (for the low-confidence warning):
+  confidence 0-60%: n=67, accuracy=16.4%
+  confidence 60-80%: n=31, accuracy=41.9%
+  confidence 80-100%: n=5, accuracy=80.0%
+
+NOTE: valid only if these images were never used for training, validation, or temperature fitting.
