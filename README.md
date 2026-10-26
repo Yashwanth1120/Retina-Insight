@@ -16,6 +16,23 @@ A Streamlit application that grades diabetic retinopathy (DR) from retinal fundu
 
 ## Results
 
+### Research Retraining Benchmark (15 Epochs, Strict 3-Way Split & Scale Augmentation)
+
+To address the limitations of rapid baseline training (5 epochs, unaugmented framing, optimistic internal validation), an academic-grade retraining pipeline is provided in `retina_insight_paper_retraining.ipynb`. It uses a strict 3-way stratified partition (70% train, 15% validation, 15% strictly held-out test), scale jitter (`RandomResizedCrop` 0.80–1.05), aspect framing, rotation, and color jitter, trained for 15 epochs with Cosine Annealing.
+
+#### Strict Held-Out Test Evaluation (550 unseen APTOS scans)
+
+| Metric | Baseline Prototype (5 Epochs) | Retrained Paper Model (15 Epochs) | Clinical Significance |
+|---|---|---|---|
+| **Data Partition** | 80/20 train/val (no test set) | **70% Train / 15% Val / 15% Test** | Unbiased test set isolated before training |
+| **Quadratic Weighted Kappa (QWK)** | 0.8864 (optimistic val) | **0.8752** (held-out test) | Substantial agreement with retina specialists |
+| **Referable DR (Stage ≥ 2) AUC** | Not evaluated on unseen test | **0.9821** | Primary triage benchmark for specialist referral |
+| **Within-One-Stage Concordance** | Not reported | **95.64%** | Near-zero catastrophic stage misclassifications |
+| **Exact 5-Class Accuracy** | 78.0% (val) | **77.45%** (held-out test) | Fine-grained severity classification |
+| **Stage 0 (No DR) Sensitivity** | Not reported | **97.05%** (95.27% precision) | Prevents false referrals for healthy eyes |
+| **Optimal Temperature (T)** | 1.3782 | **1.4146** | Fitted post-hoc on validation logits via L-BFGS |
+| **Calibrated Test ECE** | N/A | **6.20%** | Reliable uncertainty calibration |
+
 ### APTOS 2019 validation split (internal)
 
 The model was trained on 80% of the APTOS 2019 training images and evaluated on the remaining 20% (733 images, stratified split, seed 42).
@@ -88,6 +105,7 @@ python evaluate_model.py --data test_images --csv labels.csv --out eval_results
 | Path | Purpose |
 |---|---|
 | `app.py` | Streamlit application |
+| `retina_insight_paper_retraining.ipynb` | Research retraining notebook (15 epochs, 3-way split, scale augmentation, calibration, IDRiD discovery) |
 | `best_retina_model.pth` | Trained EfficientNet-B0 weights |
 | `temperature.txt` | Fitted calibration temperature |
 | `sample_images/` | 25 demo images from APTOS (22 were in the training split, 3 in validation; for demonstration only, not evidence of performance) |

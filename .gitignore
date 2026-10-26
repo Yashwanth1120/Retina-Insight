@@ -1,3 +1,5 @@
+.virtual_documents/
+*.zip
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,4 +8,6 @@ __pycache__/
 temp_*.jpg
 test_images/
 eval_*/
+.virtual_documents/
+*.zip
 __pycache__/
