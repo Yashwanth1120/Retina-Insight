@@ -157,19 +157,37 @@ def load_model(model_path, device):
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     return model.to(device).eval()
 
-def preprocess_image(path):
-    """Must stay identical to fast_ben_graham() + transforms in app.py."""
+def crop_black_borders(bgr, thresh=15, min_frac=0.02):
+    """Crop the dark margins around the fundus disc, then pad to a square (keeps aspect ratio)."""
+    import cv2
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    m = gray > thresh
+    rows = np.where(m.mean(axis=1) > min_frac)[0]
+    cols = np.where(m.mean(axis=0) > min_frac)[0]
+    if len(rows) == 0 or len(cols) == 0:
+        return bgr
+    bgr = bgr[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+    h, w = bgr.shape[:2]
+    side = max(h, w)
+    top, left = (side - h) // 2, (side - w) // 2
+    return cv2.copyMakeBorder(bgr, top, side - h - top, left, side - w - left,
+                              cv2.BORDER_CONSTANT, value=(0, 0, 0))
+
+def preprocess_image(path, crop=False):
+    """crop=False must stay identical to fast_ben_graham() + transforms in app.py."""
     import cv2
     from PIL import Image
     bgr = cv2.imread(path)
     if bgr is None:
         return None
+    if crop:
+        bgr = crop_black_borders(bgr)
     bgr = cv2.resize(bgr, (256, 256))
     blurred = cv2.GaussianBlur(bgr, (0, 0), 10)
     enhanced = cv2.addWeighted(bgr, 4, blurred, -4, 128)
     return Image.fromarray(cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB))
 
-def get_logits(model, samples, device, batch_size=32):
+def get_logits(model, samples, device, batch_size=32, crop=False):
     import torch
     from torchvision import transforms
     tf = transforms.Compose([
@@ -190,7 +208,7 @@ def get_logits(model, samples, device, batch_size=32):
         batch_idx.clear()
 
     for i, (path, _) in enumerate(samples):
-        img = preprocess_image(path)
+        img = preprocess_image(path, crop)
         if img is None:
             print(f"[skip] unreadable image {path}")
             continue
@@ -243,6 +261,8 @@ def main():
     ap.add_argument("--model", default="best_retina_model.pth")
     ap.add_argument("--temp", default="temperature.txt")
     ap.add_argument("--out", default="eval_results")
+    ap.add_argument("--crop", action="store_true",
+                    help="crop black borders and pad to square before resizing (differs from app.py preprocessing)")
     args = ap.parse_args()
 
     import torch
@@ -257,7 +277,7 @@ def main():
     with open(args.temp) as f:
         temperature = float(f.read().strip())
     model = load_model(args.model, device)
-    logits, kept = get_logits(model, samples, device)
+    logits, kept = get_logits(model, samples, device, crop=args.crop)
     y_true = np.array([samples[i][1] for i in kept])
     paths = [samples[i][0] for i in kept]
 
@@ -290,7 +310,7 @@ def main():
 
     lines = []
     P = lines.append
-    P(f"Images evaluated: {len(y_true)}   (temperature T = {temperature:.4f})")
+    P(f"Images evaluated: {len(y_true)}   (temperature T = {temperature:.4f})   Border crop: {'ON' if args.crop else 'off (same as app.py)'}")
     P(f"Accuracy: {acc*100:.2f}%   Within +/-1 stage: {adjacent*100:.2f}%   Mean abs. stage error: {mae:.3f}")
     P(f"Quadratic weighted kappa (QWK): {qwk:.4f}")
     P(f"Over-graded (pred > true): {over}   Under-graded (pred < true): {under}")
