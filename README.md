@@ -1,69 +1,116 @@
-# Retina-Insight
-# 👁️ Retina Insight: Explainable AI for Diabetic Retinopathy Screening
+# Retina Insight: Explainable AI for Diabetic Retinopathy Screening
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B.svg)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+A Streamlit application that grades diabetic retinopathy (DR) from retinal fundus photographs on a 0 to 4 scale, shows how confident the model is, highlights the image regions that influenced the prediction (Grad-CAM), and exports a PDF screening report.
 
-> **Major Project Phase-1 & Phase-2**  
-> **Department of Computer Science and Engineering (AI & ML)**  
-> **CMR College of Engineering & Technology (UGC Autonomous), Hyderabad**  
-> **Batch No.:** 38 | **Academic Year:** 2026–2027  
-> **Under the Guidance of:** Ms. Ruquia Taha, Assistant Professor  
-> **Team Members:**  
-> - G. Aishwarya (23H51A66X3)  
-> - J. Sravan Kumar (23H51A66Y1)  
-> - L. Yashwanth (23H51A66Y6)  
+**Live demo:** [https://retina-insight-9amtvfcupzmubdubgigw4v.streamlit.app/](https://retina-insight-9amtvfcupzmubdubgigw4v.streamlit.app/)
 
----
+> **Intended use: research and education only.** Retina Insight is a screening-aid prototype. It is not a medical device and its output is not a diagnosis. Every result must be reviewed by a qualified ophthalmologist.
 
-## 📌 Executive Summary
-**Retina Insight** is an end-to-end, clinically safe, deep learning-powered clinical decision support system for **Diabetic Retinopathy (DR)** severity grading from retinal fundus photographs. 
+## What it does
 
-Unlike conventional "black-box" models that blindly predict on ungradable images, **Retina Insight** introduces a **3-tier clinical pipeline**:
-1. **Clinical Gatekeeper (IQA & OOD Detection):** Rejects non-retinal inputs (faces, objects, text) and flags sub-optimal scans (blur, illumination faults) using Laplacian variance and hemoglobin chromatic analysis.
-2. **Transfer Learning Core:** Fine-tuned **EfficientNet-B0** with class-balanced weighting to handle severe medical class imbalance across all 5 clinical stages.
-3. **Clinical Trust Engine:** Post-hoc **Confidence Calibration via Temperature Scaling** combined with **Grad-CAM visual heatmaps** to highlight pathological microaneurysms and hemorrhages.
+- **Grades DR in five stages:** No DR, Mild, Moderate, Severe, Proliferative (ICDR scale, 0 to 4).
+- **Calibrated confidence:** temperature scaling (T = 1.3782) makes the displayed probabilities more reliable. Predictions below 60% confidence trigger a manual-review warning.
+- **Grad-CAM attention map:** shows the regions that influenced the model's prediction. It has not been validated as a lesion detector.
+- **Image check:** a simple colour, blur and brightness heuristic rejects obviously unsuitable images. It is not a trained retina detector and can be fooled.
+- **Report generation:** drafts a patient-friendly summary and a SOAP-style clinical note, and exports a PDF. Notes come from an offline template, or optionally from Google Gemini. The patient name is never sent to Gemini.
 
----
+## Results
 
-## 🏆 Key Performance Benchmarks
+### APTOS 2019 validation split (internal)
 
-| Metric | Score Achieved | Clinical Benchmark Significance |
-| :--- | :--- | :--- |
-| **Quadratic Weighted Kappa (QWK)** | **`0.8833`** | Top 5% global benchmark on APTOS 2019 dataset (*Near-perfect clinical agreement*) |
-| **5-Class Validation Accuracy** | **`81.30%`** | Balanced multiclass performance across stages 0 to 4 |
-| **Expected Calibration Error (ECE)** | **`3.58%`** | Reduced from **4.81%** post-temperature scaling ($T = 1.3301$) |
-| **Inference Latency** | **`< 120 ms`** | Real-time diagnostic response on standard consumer hardware |
+The model was trained on 80% of the APTOS 2019 training images and evaluated on the remaining 20% (733 images, stratified split, seed 42).
 
----
+| Metric | Value |
+|---|---|
+| Accuracy | 78.0% |
+| Quadratic weighted kappa (QWK) | 0.8864 |
+| Temperature (T) | 1.3782 |
+| ECE before / after temperature scaling | 5.92% / 2.53% |
 
-## 🏗️ System Architecture
+These numbers come from the final epoch (5) of the training run. The same validation set was used to choose the best epoch and to fit the temperature, so they are slightly optimistic. There is no separate APTOS test set.
 
-```text
-[Retinal Fundus Image / Upload]
-               │
-               ▼
-┌────────────────────────────────────────┐
-│  Tier 1: Clinical Gatekeeper (Safety)   │
-│  - Anatomical Hemoglobin Check         │ ──(Fails)──▶ [Halt Screening & Request Retake]
-│  - Laplacian Blur & Exposure Analysis  │
-└──────────────────┬─────────────────────┘
-                   │ (Passes Clinical Quality)
-                   ▼
-┌────────────────────────────────────────┐
-│  Tier 2: Preprocessing & Neural Core    │
-│  - Ben Graham Color Contrast Filtering │
-│  - EfficientNet-B0 (Trained Backbone)  │
-└──────────────────┬─────────────────────┘
-                   │
-                   ▼
-┌────────────────────────────────────────┐
-│  Tier 3: Trust, Calibration & XAI      │
-│  - Temperature Scaling Logits (T=1.33) │ ──▶ [Calibrated Probabilities & ECE Analysis]
-│  - Grad-CAM Lesion Localization Heatmap│ ──▶ [Visual Clinical Decision Support]
-└──────────────────┬─────────────────────┘
-                   │
-                   ▼
-[Interactive Streamlit Diagnostic Dashboard]
+### IDRiD external test (never seen during training)
+
+Evaluated on the official IDRiD test split (103 images, from a different camera and clinic).
+
+| Metric | As deployed | With border crop (experiment) |
+|---|---|---|
+| Accuracy | 27.2% | 40.8% |
+| Within one stage | 83.5% | 87.4% |
+| QWK | 0.470 | 0.637 |
+| Referable DR (stage 2 or higher) AUC | 0.881 | 0.914 |
+| Referable DR sensitivity | 73.4% | 64.1% |
+| Referable DR specificity | 76.9% | 97.4% |
+| ECE after scaling | 25.7% | 16.4% |
+
+**What this means:** the model separates sicker from healthier eyes reasonably well on IDRiD (AUC 0.88), but it often picks the wrong exact stage, and its confidence is not well calibrated on images from a different source. Healthy eyes are frequently graded as Stage 1, and moderate cases as Stage 3. The border-crop variant improved the IDRiD results but lowered accuracy on APTOS-style images (92% to 72% on the demo set), so it is not used in the app.
+
+## Limitations
+
+- **Domain shift:** performance drops sharply on images that differ from APTOS in camera, field of view or framing. The model was trained with no cropping and no scale or framing augmentation.
+- **Short training:** 5 epochs. Validation QWK was still rising at the last epoch.
+- **No separate APTOS test set:** see the note above about optimistic internal numbers.
+- **Small classes:** the IDRiD test split has only 5 Stage 1 images, so Stage 1 figures are very uncertain.
+- **Grad-CAM is not clinically validated.** A heatmap showing where the model looked does not prove it found a lesion.
+- **The image check is a heuristic** and can accept non-retinal images or reject valid ones.
+- **Not a medical device.** Not tested in a clinical setting.
+
+## How it works
+
+1. **Image check:** colour statistics, blur (Laplacian variance) and brightness.
+2. **Preprocessing:** resize the whole image to 256 x 256, then a Ben Graham filter (Gaussian blur with sigma 10).
+3. **Model:** EfficientNet-B0 (ImageNet weights) with a 5-class head, dropout 0.3, class-weighted cross-entropy, AdamW (learning rate 3e-4), cosine schedule, 5 epochs. Augmentation: flips and rotation up to 15 degrees.
+4. **Calibration:** temperature scaling fitted with L-BFGS on the validation logits.
+5. **Explanation:** Grad-CAM on the last feature block.
+6. **Notes and PDF:** offline template or Gemini (optional), exported with ReportLab.
+
+## Run locally
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Optional: paste a Gemini API key in the sidebar for AI-drafted notes. Without a key, the app uses the built-in offline summary.
+
+On Streamlit Community Cloud, `requirements.txt` and `packages.txt` are used automatically.
+
+## Evaluate the model on your own labelled images
+
+```bash
+python evaluate_model.py --data test_images --csv labels.csv --out eval_results
+```
+
+`labels.csv` needs the columns `id_code` and `diagnosis` (0 to 4); alternatively, name the files `stage_N_...` or put them in folders `0` to `4`. The script reports accuracy, QWK, the confusion matrix, per-class sensitivity and specificity, referable-DR AUC, calibration (ECE and NLL), and accuracy by confidence level. Use `--crop` to test border cropping. Use only images that were never used for training or calibration.
+
+## Repository contents
+
+| Path | Purpose |
+|---|---|
+| `app.py` | Streamlit application |
+| `best_retina_model.pth` | Trained EfficientNet-B0 weights |
+| `temperature.txt` | Fitted calibration temperature |
+| `sample_images/` | 25 demo images from APTOS (22 were in the training split, 3 in validation; for demonstration only, not evidence of performance) |
+| `evaluate_model.py` | Evaluation script |
+| `requirements.txt`, `packages.txt` | Dependencies for deployment |
+
+## Data and attribution
+
+- **APTOS 2019 Blindness Detection** (Asia Pacific Tele-Ophthalmology Society, via Kaggle): used for training and internal validation. Use is subject to the competition's data terms.
+- **IDRiD (Indian Diabetic Retinopathy Image Dataset):** used for external testing. The images are not included in this repository. Licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). Original source: IEEE DataPort. Citation: Porwal P., Pachade S., Kamble R., Kokare M., Deshmukh G., Sahasrabuddhe V. *Indian Diabetic Retinopathy Image Dataset (IDRiD): A Database for Diabetic Retinopathy Screening Research.* Data, 2018, 3(3), 25. DOI: 10.3390/data3030025.
+
+## Team
+
+**B.Tech Major Project (Batch 38, Academic Year 2026–2027)**  
+**Department of Computer Science and Engineering (AI & ML)**  
+**CMR College of Engineering & Technology (UGC Autonomous), Hyderabad**  
+
+- **Team Members:**
+  - L. Yashwanth (23H51A66Y6)
+  - G. Aishwarya (23H51A66X3)
+  - J. Sravan Kumar (23H51A66Y1)
+- **Project Guide:** Ms. Ruquia Taha, Assistant Professor
+
+## License
+
+MIT. See the `LICENSE` file.
