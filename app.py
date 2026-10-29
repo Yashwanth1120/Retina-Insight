@@ -263,6 +263,32 @@ class GradCAM:
         self.activations = None
         return cam, target_class, logits
 
+# ----------------- CLINIC SCREENING REGISTRY & AUDIT TRAIL -----------------
+SCREENING_LOG_PATH = "screening_records.csv"
+LOG_COLUMNS = [
+    "Timestamp", "Patient Name", "Age", "Gender", "Location",
+    "Duration (Yrs)", "HbA1c (%)", "Image Source",
+    "Predicted Stage", "Confidence (%)", "Triage Urgency", "Referral Pathway"
+]
+
+def load_screening_log():
+    if os.path.exists(SCREENING_LOG_PATH):
+        try:
+            return pd.read_csv(SCREENING_LOG_PATH)
+        except Exception:
+            pass
+    return pd.DataFrame(columns=LOG_COLUMNS)
+
+def append_screening_log(entry_dict):
+    try:
+        df_new = pd.DataFrame([entry_dict])
+        if not os.path.exists(SCREENING_LOG_PATH):
+            df_new.to_csv(SCREENING_LOG_PATH, index=False)
+        else:
+            df_new.to_csv(SCREENING_LOG_PATH, mode='a', header=False, index=False)
+    except Exception:
+        pass
+
 # ----------------- MODEL LOADER -----------------
 DEFAULT_TEMPERATURE = 1.3782
 
@@ -778,6 +804,26 @@ if img_bgr is not None:
 
         st.markdown(notes_text)
 
+                # Auto-log patient screening to session and persistent registry
+        current_eval_key = f"{active_source_label}_{p_name}_{p_age}_{pred_class}_{confidence:.1f}_{loc_clean}"
+        if st.session_state.get("last_logged_eval_key") != current_eval_key:
+            st.session_state["last_logged_eval_key"] = current_eval_key
+            new_record = {
+                "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "Patient Name": p_name,
+                "Age": p_age,
+                "Gender": p_gender,
+                "Location": loc_clean,
+                "Duration (Yrs)": p_duration,
+                "HbA1c (%)": p_hba1c,
+                "Image Source": active_source_label,
+                "Predicted Stage": DIAGNOSIS_INFO[pred_class]['name'],
+                "Confidence (%)": f"{confidence:.1f}%",
+                "Triage Urgency": proto['urgency'],
+                "Referral Pathway": proto['timeline']
+            }
+            append_screening_log(new_record)
+
         st.markdown("#### 📄 Export Screening Report")
         try:
             pdf_bytes = generate_pdf_report(
@@ -801,5 +847,59 @@ if img_bgr is not None:
             )
         except Exception as e:
             st.error(f"Could not compile PDF: {e}")
+    # ----------------- SECTION 6: CLINIC REGISTRY & AUDIT TRAIL -----------------
+    st.markdown("---")
+    st.subheader("6. 📋 Patient Screening Registry & Audit Trail")
+    st.caption("Centralized record of all screened patients for clinic audits, epidemiological monitoring, and specialist referral tracking.")
+    
+    records_df = load_screening_log()
+    if not records_df.empty:
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("Total Patients Screened", len(records_df))
+        with m2:
+            no_dr = records_df['Predicted Stage'].str.contains('Stage 0').sum()
+            st.metric("Routine Monitoring (Stage 0)", int(no_dr))
+        with m3:
+            referable = records_df['Predicted Stage'].str.contains('Stage 2|Stage 3|Stage 4').sum()
+            st.metric("Referable Cases (Stage ≥ 2)", int(referable))
+            
+        st.dataframe(records_df, use_container_width=True, hide_index=True)
+        
+        csv_bytes = records_df.to_csv(index=False).encode('utf-8')
+        d_col1, d_col2 = st.columns([1.5, 1])
+        with d_col1:
+            st.download_button(
+                label="📥 Export Full Screening Registry (CSV)",
+                data=csv_bytes,
+                file_name=f"Retina_Screening_Registry_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with d_col2:
+            if st.button("🗑️ Clear Audit Log", use_container_width=True):
+                if os.path.exists(SCREENING_LOG_PATH):
+                    try:
+                        os.remove(SCREENING_LOG_PATH)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Could not clear log: {e}")
+    else:
+        st.info("ℹ️ No screening records logged yet. Records will accumulate here as patients are screened.")
 else:
     st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
+    
+    # Also display Registry when idle so past records can be retrieved anytime
+    records_df = load_screening_log()
+    if not records_df.empty:
+        st.markdown("---")
+        st.subheader("📋 Previous Patient Screening Registry & Audit Trail")
+        st.dataframe(records_df, use_container_width=True, hide_index=True)
+        csv_bytes = records_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Export Full Screening Registry (CSV)",
+            data=csv_bytes,
+            file_name=f"Retina_Screening_Registry_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
