@@ -1,3 +1,4 @@
+import urllib.parse
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -467,7 +468,9 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
         [Paragraph("<b>Age / Gender:</b>", body_style), Paragraph(f"{patient_info.get('age', 'N/A')} yrs / {html.escape(str(patient_info.get('gender', 'N/A')))}", body_style),
          Paragraph("<b>HbA1c Level:</b>", body_style), Paragraph(f"{patient_info.get('hba1c', 'N/A')}%", body_style)],
         [Paragraph("<b>Diabetes Duration:</b>", body_style), Paragraph(f"{patient_info.get('duration', 'N/A')} Years", body_style),
-         Paragraph("<b>Image Quality Check:</b>", body_style), Paragraph("Passed (automated heuristic)", body_style)]
+         Paragraph("<b>Image Quality Check:</b>", body_style), Paragraph("Passed (automated heuristic)", body_style)],
+        [Paragraph("<b>Location / Area:</b>", body_style), Paragraph(html.escape(str(patient_info.get('location', 'N/A'))), body_style),
+         Paragraph("<b>Triage Pathway:</b>", body_style), Paragraph(html.escape(str(CLINICAL_PROTOCOLS.get(int(stage_idx if 'stage_idx' in locals() else 0), {}).get('timeline', 'Routine'))), body_style)]
     ]
     t_patient = Table(patient_data, colWidths=[100, 160, 100, 160])
     t_patient.setStyle(TableStyle([
@@ -717,10 +720,26 @@ if img_bgr is not None:
 
         # Nearby Eye Hospital & Retina Specialist Locator
         with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
-            st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential:")
+            st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
+            
+            loc_col1, loc_col2 = st.columns([2.5, 1])
+            with loc_col1:
+                user_loc = st.text_input(
+                    "Enter Patient's City, Area, or PIN Code:",
+                    value="Hyderabad",
+                    help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
+                )
+            with loc_col2:
+                st.write("")
+                st.write("")
+                loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
+
+            encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
+            maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
+            
             st.link_button(
-                "🔎 Find Nearest Retina Specialists & Eye Hospitals (Google Maps)",
-                url="https://www.google.com/maps/search/retina+specialist+eye+hospital+near+me",
+                f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
+                url=maps_url,
                 use_container_width=True
             )
             st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
@@ -738,7 +757,8 @@ if img_bgr is not None:
             "age": p_age,
             "gender": p_gender,
             "duration": p_duration,
-            "hba1c": p_hba1c
+            "hba1c": p_hba1c,
+            "location": loc_clean
         }
 
         notes_text, is_gemini, notes_error = generate_clinical_notes(
