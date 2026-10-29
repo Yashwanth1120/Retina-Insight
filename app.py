@@ -63,6 +63,90 @@ BENCHMARKS = {"qwk": "0.8864", "accuracy": "78.0%", "ece": "2.53%"}
 EXTERNAL = {"accuracy": "27.2%", "qwk": "0.47", "auc_referable": "0.88"}
 LOW_CONFIDENCE_THRESHOLD = 60.0  # percent
 
+
+# ----------------- CLINICAL CARE PROTOCOLS & EYE CARE DIRECTORY (ICO/WHO GUIDELINES) -----------------
+CLINICAL_PROTOCOLS = {
+    0: {
+        "urgency": "Routine Annual Review",
+        "badge_color": "green",
+        "timeline": "Re-screen in 12 months",
+        "referral_level": "Primary Care / Optometry / General Ophthalmology",
+        "summary": "No microvascular lesions detected. Low immediate vision risk.",
+        "target_goals": [
+            "Maintain optimal glycemic control (target HbA1c < 7.0%).",
+            "Maintain blood pressure within target limits (< 130/80 mmHg).",
+            "Annual comprehensive dilated eye examination."
+        ],
+        "workup": "Routine visual acuity & non-mydriatic fundus evaluation."
+    },
+    1: {
+        "urgency": "Early Monitoring (Low Risk)",
+        "badge_color": "orange",
+        "timeline": "Follow-up in 6 to 9 months",
+        "referral_level": "Comprehensive Ophthalmologist / Medical Retina Clinic",
+        "summary": "Microaneurysms only. Early vascular stress without significant macular involvement.",
+        "target_goals": [
+            "Intensify glycemic and metabolic management with treating physician.",
+            "Monitor blood pressure and lipid profile to prevent lesion progression.",
+            "Patient education on self-reporting sudden vision changes or floaters."
+        ],
+        "workup": "Dilated slit-lamp biomicroscopy & baseline macular monitoring."
+    },
+    2: {
+        "urgency": "Referable Diabetic Retinopathy (Moderate Risk)",
+        "badge_color": "red",
+        "timeline": "Specialist referral within 2 to 3 months",
+        "referral_level": "Comprehensive Ophthalmologist / Retina Clinic",
+        "summary": "Microaneurysms, hemorrhages, or exudates detected. Requires dilated evaluation.",
+        "target_goals": [
+            "Formal dilated eye evaluation to assess for diabetic macular edema (DME).",
+            "Avoid rapid, uncontrolled fluctuations in blood sugar.",
+            "Coordinate diabetes care between endocrinologist and eye specialist."
+        ],
+        "workup": "Optical Coherence Tomography (OCT Macula) + Dilated Fundus Examination."
+    },
+    3: {
+        "urgency": "High-Risk Pre-Proliferative (Severe)",
+        "badge_color": "red",
+        "timeline": "URGENT consultation within 2 to 4 weeks",
+        "referral_level": "Vitreo-Retinal Super-Specialist",
+        "summary": "Multi-quadrant blot hemorrhages, venous beading, or IRMA. ~50% risk of progression to PDR within 1 year.",
+        "target_goals": [
+            "Urgent specialist evaluation for preventive laser or anti-VEGF therapy.",
+            "Strict blood pressure control to reduce hemorrhage risk.",
+            "Renal status check (microalbuminuria / eGFR) as nephropathy often coexists."
+        ],
+        "workup": "High-definition OCT Macula + Fundus Fluorescein Angiography (FFA)."
+    },
+    4: {
+        "urgency": "Ophthalmic Emergency (Vision-Threatening)",
+        "badge_color": "red",
+        "timeline": "IMMEDIATE emergency review within 24 to 48 hours",
+        "referral_level": "Tertiary Eye Hospital / Emergency Retina Service",
+        "summary": "Neovascularization detected. High danger of sudden vitreous hemorrhage or tractional retinal detachment.",
+        "target_goals": [
+            "Immediate presentation to a tertiary vitreo-retinal facility.",
+            "Urgent anti-VEGF injections, panretinal photocoagulation (PRP), or vitrectomy.",
+            "Avoid strenuous physical lifting, heavy bending, or unapproved anticoagulants."
+        ],
+        "workup": "Emergency FFA, B-Scan Ultrasonography (if media hazy), and surgical evaluation."
+    }
+}
+
+EYE_HOSPITALS_DIRECTORY = {
+    "Telangana & Andhra Pradesh": [
+        {"name": "L.V. Prasad Eye Institute (LVPEI)", "city": "Hyderabad (Banjara Hills, Kismatpur, Madhapur)", "contact": "+91 40 6810 2020", "type": "Apex Tertiary Retinal Center", "url": "https://www.lvpei.org"},
+        {"name": "Sarojini Devi Eye Hospital", "city": "Hyderabad (Mehdipatnam)", "contact": "+91 40 2353 8206", "type": "Government Apex Regional Eye Hospital (Subsidized/Free)", "url": "https://dme.telangana.gov.in/sarojini-devi-eye-hospital-hyderabad/"},
+        {"name": "Maxivision Super Speciality Eye Hospital", "city": "Hyderabad (Somajiguda, Kukatpally, AS Rao Nagar)", "contact": "1800 419 2020", "type": "Vitreo-Retina Specialty Network", "url": "https://www.maxivisioneyehospital.com"},
+        {"name": "Apollo Hospitals Eye Institute", "city": "Hyderabad (Jubilee Hills / Secunderabad)", "contact": "+91 40 2360 7777", "type": "Multi-Specialty Retinal Center", "url": "https://www.apollohospitals.com"}
+    ],
+    "National Apex Eye Centers (India)": [
+        {"name": "Dr. Rajendra Prasad Centre for Ophthalmic Sciences (AIIMS)", "city": "New Delhi", "contact": "+91 11 2658 8500", "type": "National Apex Institute", "url": "https://www.aiims.edu"},
+        {"name": "Sankara Nethralaya", "city": "Chennai, Tamil Nadu", "contact": "+91 44 4227 1500", "type": "Premier Charitable Retina Center", "url": "https://www.sankaranethralaya.org"},
+        {"name": "Aravind Eye Care System", "city": "Madurai, Coimbatore, Tirunelveli (Tamil Nadu)", "contact": "+91 452 435 6100", "type": "High-Volume Retinal Screening & Care", "url": "https://aravind.org"}
+    ]
+}
+
 DIAGNOSIS_INFO = {
     0: {"name": "Stage 0: No Diabetic Retinopathy", "action": "Routine annual screening recommended in 12 months."},
     1: {"name": "Stage 1: Mild DR", "action": "Follow-up screening in 6-12 months. Maintain strict glycemic control."},
@@ -342,7 +426,7 @@ def _jpeg_buffer(rgb_array):
     buf.seek(0)
     return buf
 
-def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text):
+def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text, stage_idx=0):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     elements = []
@@ -407,6 +491,25 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
         ('PADDING', (0, 0), (-1, -1), 5),
     ]))
     elements.append(t_diag)
+    elements.append(Spacer(1, 10))
+
+    # 3b. Evidence-Based Clinical Referral Pathway (ICO/WHO Guidelines)
+    proto = CLINICAL_PROTOCOLS.get(int(stage_idx if 'stage_idx' in locals() else 0), CLINICAL_PROTOCOLS[0])
+    referral_rows = [
+        [Paragraph("<b>Clinical Triage Urgency:</b>", body_style), Paragraph(f"<b>{html.escape(proto['urgency'])}</b>", body_style),
+         Paragraph("<b>Recommended Timeline:</b>", body_style), Paragraph(f"<b>{html.escape(proto['timeline'])}</b>", body_style)],
+        [Paragraph("<b>Referral Level:</b>", body_style), Paragraph(html.escape(proto['referral_level']), body_style),
+         Paragraph("<b>Recommended Workup:</b>", body_style), Paragraph(html.escape(proto['workup']), body_style)]
+    ]
+    t_referral = Table(referral_rows, colWidths=[110, 150, 110, 150])
+    t_referral.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF3C7') if int(stage_idx if 'stage_idx' in locals() else 0) >= 2 else colors.HexColor('#F0FDF4')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#F59E0B') if int(stage_idx if 'stage_idx' in locals() else 0) >= 2 else colors.HexColor('#86EFAC')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t_referral)
     elements.append(Spacer(1, 10))
 
     # 4. Images (in-memory buffers: safe for multiple simultaneous users)
@@ -583,9 +686,52 @@ if img_bgr is not None:
         with v3:
             st.image(overlay, caption="3. Grad-CAM Attention", use_container_width=True)
 
-        # ----------------- SECTION 4: NOTES & PDF EXPORT -----------------
+        # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
         st.markdown("---")
-        st.subheader("4. Clinical Notes & PDF Report")
+        st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
+        proto = CLINICAL_PROTOCOLS[pred_class]
+
+        c_triage, c_timeline = st.columns([1.2, 1])
+        with c_triage:
+            if pred_class >= 2:
+                st.error(f"🚨 **Triage Priority:** {proto['urgency']}")
+            elif pred_class == 1:
+                st.warning(f"⚠️ **Triage Priority:** {proto['urgency']}")
+            else:
+                st.success(f"🟢 **Triage Priority:** {proto['urgency']}")
+            st.write(f"**Referral Care Level:** `{proto['referral_level']}`")
+            st.write(f"**Diagnostic Workup:** {proto['workup']}")
+
+        with c_timeline:
+            st.info(f"⏱️ **Follow-up Timeline:** {proto['timeline']}")
+            if p_hba1c >= 8.0:
+                st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
+
+        # Evidence-Based Systemic & Lifestyle Guidance
+        with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
+            st.write(f"**Clinical Summary:** {proto['summary']}")
+            st.write("**Key Management Goals:**")
+            for goal in proto['target_goals']:
+                st.markdown(f"- {goal}")
+            st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
+
+        # Nearby Eye Hospital & Retina Specialist Locator
+        with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
+            st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential:")
+            st.link_button(
+                "🔎 Find Nearest Retina Specialists & Eye Hospitals (Google Maps)",
+                url="https://www.google.com/maps/search/retina+specialist+eye+hospital+near+me",
+                use_container_width=True
+            )
+            st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
+            for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
+                st.markdown(f"**{region}:**")
+                for h in hospitals:
+                    st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
+
+        # ----------------- SECTION 5: NOTES & PDF EXPORT -----------------
+        st.markdown("---")
+        st.subheader("5. Clinical Notes & PDF Report")
 
         patient_info_dict = {
             "name": p_name,
@@ -620,7 +766,8 @@ if img_bgr is not None:
                 confidence=confidence,
                 original_rgb=cv2.resize(img_rgb, (300, 300)),
                 gradcam_rgb=cv2.resize(overlay, (300, 300)),
-                clinical_notes_text=notes_text
+                clinical_notes_text=notes_text,
+                stage_idx=pred_class
             )
 
             safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
