@@ -1,3 +1,4 @@
+import pandas as pd
 import urllib.parse
 import streamlit as st
 import torch
