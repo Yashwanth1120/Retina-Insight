@@ -5,9 +5,7 @@ __pycache__/
 *$py.class
 .ipynb_checkpoints/
 .env
+kaggle.json
 temp_*.jpg
 test_images/
 eval_*/
-.virtual_documents/
-*.zip
-__pycache__/

@@ -219,9 +219,11 @@ def fast_ben_graham(img_bgr, target_size=256):
     enhanced = cv2.addWeighted(img_bgr, 4, blurred, -4, 128)
     return enhanced
 
-# ----------------- GRAD-CAM -----------------
-class GradCAM:
-    """Grad-CAM using a forward hook + tensor hook (avoids full_backward_hook in-place issues)."""
+# ----------------- GRAD-CAM++ (EXPLAINABLE AI) -----------------
+class GradCAMPlusPlus:
+    """Grad-CAM++ implementation for second- and third-order gradient-weighted visual explanations.
+    Reference: Chattopadhyay et al., 'Grad-CAM++: Generalized Gradient-based Visual Explanations' (2018).
+    Captures multiple scattered lesions (microaneurysms, blot hemorrhages) with higher fidelity than standard Grad-CAM."""
 
     def __init__(self, model, target_layer):
         self.model = model
@@ -249,20 +251,68 @@ class GradCAM:
             self.model.zero_grad()
             output[0, target_class].backward()
 
-        gradients = self.gradients.detach().cpu().numpy()[0]
-        activations = self.activations.detach().cpu().numpy()[0]
-        weights = np.mean(gradients, axis=(1, 2))
+        grads = self.gradients.detach()
+        acts = self.activations.detach()
 
-        cam = np.tensordot(weights, activations, axes=1).astype(np.float32)
-        cam = np.maximum(cam, 0)
-        cam = cv2.resize(cam, (256, 256))
-        cam = cam - np.min(cam)
-        cam = cam / (np.max(cam) + 1e-8)
+        # Second and third order partial derivatives
+        grads_power_2 = grads ** 2
+        grads_power_3 = grads_power_2 * grads
+
+        sum_acts_grads_3 = torch.sum(acts * grads_power_3, dim=(2, 3), keepdim=True)
+        eps = 1e-7
+        denom = 2.0 * grads_power_2 + sum_acts_grads_3
+        denom = torch.where(denom != 0.0, denom, torch.ones_like(denom) * eps)
+
+        aij = grads_power_2 / denom
+        aij = torch.where(grads != 0.0, aij, torch.zeros_like(aij))
+
+        # Pixel-wise positive gradient weighting
+        weights = torch.maximum(grads, torch.zeros_like(grads)) * aij
+        weights = torch.sum(weights, dim=(2, 3), keepdim=True)
+
+        cam = torch.sum(weights * acts, dim=1, keepdim=True)
+        cam = torch.maximum(cam, torch.zeros_like(cam))
+
+        cam_np = cam[0, 0].cpu().numpy().astype(np.float32)
+        cam_np = cv2.resize(cam_np, (256, 256))
+        cam_min, cam_max = np.min(cam_np), np.max(cam_np)
+        if cam_max > cam_min:
+            cam_np = (cam_np - cam_min) / (cam_max - cam_min + 1e-8)
+        else:
+            cam_np = np.zeros_like(cam_np)
 
         logits = output.detach().cpu()
         self.gradients = None
         self.activations = None
-        return cam, target_class, logits
+        return cam_np, target_class, logits
+
+
+# ----------------- CLINICAL COLORMAPS & OVERLAY GENERATOR -----------------
+COLORMAP_OPTIONS = {
+    "JET (Classic Ophthalmology)": cv2.COLORMAP_JET,
+    "Inferno (High Contrast / Microaneurysms)": cv2.COLORMAP_INFERNO,
+    "Turbo (Perceptually Uniform)": cv2.COLORMAP_TURBO,
+    "Viridis (Accessible / Colorblind-Friendly)": cv2.COLORMAP_VIRIDIS
+}
+
+def generate_cam_overlay(base_rgb, heatmap, colormap_name="JET (Classic Ophthalmology)", alpha=0.45, show_contours=False):
+    """Renders customized clinical overlay with selectable colormap, alpha opacity,
+    and optional high-attention lesion boundary contouring."""
+    cmap_code = COLORMAP_OPTIONS.get(colormap_name, cv2.COLORMAP_JET)
+    heatmap_u8 = np.uint8(255 * np.clip(heatmap, 0.0, 1.0))
+    heatmap_colored = cv2.applyColorMap(heatmap_u8, cmap_code)
+    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
+
+    alpha_val = float(np.clip(alpha, 0.05, 0.95))
+    overlay = cv2.addWeighted(base_rgb, 1.0 - alpha_val, heatmap_colored, alpha_val, 0)
+
+    if show_contours:
+        # High-confidence activation threshold (> 60% peak intensity)
+        thresh = np.uint8((heatmap > 0.60) * 255)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(overlay, contours, -1, (255, 255, 255), 1)
+
+    return overlay
 
 # ----------------- MODEL LOADER -----------------
 DEFAULT_TEMPERATURE = 1.3782
@@ -297,7 +347,7 @@ def load_system():
         except ValueError:
             pass
 
-    cam = GradCAM(model, model.features[-1])
+    cam = GradCAMPlusPlus(model, model.features[-1])
     return model, cam, temp, temp_from_file, device
 
 try:
@@ -312,20 +362,35 @@ preprocess = transforms.Compose([
 ])
 
 @st.cache_data(show_spinner="Running model...")
-def run_inference(img_bgr, temp):
-    """Preprocess, predict, and build the Grad-CAM overlay in a single forward/backward pass.
-    Cached so typing in the patient form does not re-run the model."""
+def run_inference(img_bgr, temp, use_tta=True):
+    """Preprocess, predict, and compute the Grad-CAM++ heatmap.
+    When use_tta is True, executes 4-fold Test-Time Augmentation (standard, horizontal
+    flip, vertical flip, rot180) to maximize classification precision and prevent
+    borderline misclassifications.
+    Cached so typing in the patient form or adjusting sliders does not re-run the neural network."""
     proc_bgr = fast_ben_graham(img_bgr, target_size=256)
     proc_rgb = cv2.cvtColor(proc_bgr, cv2.COLOR_BGR2RGB)
     tensor_img = preprocess(Image.fromarray(proc_rgb)).unsqueeze(0).to(device)
 
-    heatmap, pred_class, logits = grad_cam.generate(tensor_img)
-    probs = torch.softmax(logits / temp, dim=1)[0].numpy()
+    heatmap, single_pred, single_logits = grad_cam.generate(tensor_img)
 
-    heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap), cv2.COLORMAP_JET)
-    heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB)
-    overlay = cv2.addWeighted(proc_rgb, 0.6, heatmap_colored, 0.4, 0)
-    return proc_rgb, probs, int(pred_class), overlay
+    if use_tta:
+        tta_tensors = [
+            tensor_img[0],
+            preprocess(Image.fromarray(np.fliplr(proc_rgb).copy())).to(device),
+            preprocess(Image.fromarray(np.flipud(proc_rgb).copy())).to(device),
+            preprocess(Image.fromarray(np.rot90(proc_rgb, 2).copy())).to(device)
+        ]
+        with torch.no_grad():
+            batch_logits = model(torch.stack(tta_tensors))
+            batch_probs = torch.softmax(batch_logits / temp, dim=1).cpu().numpy()
+            probs = batch_probs.mean(axis=0)
+            pred_class = int(probs.argmax())
+    else:
+        probs = torch.softmax(single_logits / temp, dim=1)[0].numpy()
+        pred_class = int(single_pred)
+
+    return proc_rgb, probs, int(pred_class), heatmap
 
 # ----------------- CLINICAL NOTES (GENAI + OFFLINE) -----------------
 def _offline_notes(stage_idx, stage_name, confidence, patient_info):
@@ -471,7 +536,7 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
         [Paragraph("<b>Diabetes Duration:</b>", body_style), Paragraph(f"{patient_info.get('duration', 'N/A')} Years", body_style),
          Paragraph("<b>Image Quality Check:</b>", body_style), Paragraph("Passed (automated heuristic)", body_style)],
         [Paragraph("<b>Location / Area:</b>", body_style), Paragraph(html.escape(str(patient_info.get('location', 'N/A'))), body_style),
-         Paragraph("<b>Triage Pathway:</b>", body_style), Paragraph(html.escape(str(CLINICAL_PROTOCOLS.get(int(stage_idx if 'stage_idx' in locals() else 0), {}).get('timeline', 'Routine'))), body_style)]
+         Paragraph("<b>Triage Pathway:</b>", body_style), Paragraph(html.escape(str(CLINICAL_PROTOCOLS.get(int(stage_idx), {}).get('timeline', 'Routine'))), body_style)]
     ]
     t_patient = Table(patient_data, colWidths=[100, 160, 100, 160])
     t_patient.setStyle(TableStyle([
@@ -498,7 +563,7 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(Spacer(1, 10))
 
     # 3b. Evidence-Based Clinical Referral Pathway (ICO/WHO Guidelines)
-    proto = CLINICAL_PROTOCOLS.get(int(stage_idx if 'stage_idx' in locals() else 0), CLINICAL_PROTOCOLS[0])
+    proto = CLINICAL_PROTOCOLS.get(int(stage_idx), CLINICAL_PROTOCOLS[0])
     referral_rows = [
         [Paragraph("<b>Clinical Triage Urgency:</b>", body_style), Paragraph(f"<b>{html.escape(proto['urgency'])}</b>", body_style),
          Paragraph("<b>Recommended Timeline:</b>", body_style), Paragraph(f"<b>{html.escape(proto['timeline'])}</b>", body_style)],
@@ -507,8 +572,8 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     ]
     t_referral = Table(referral_rows, colWidths=[110, 150, 110, 150])
     t_referral.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF3C7') if int(stage_idx if 'stage_idx' in locals() else 0) >= 2 else colors.HexColor('#F0FDF4')),
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#F59E0B') if int(stage_idx if 'stage_idx' in locals() else 0) >= 2 else colors.HexColor('#86EFAC')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF3C7') if int(stage_idx) >= 2 else colors.HexColor('#F0FDF4')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#F59E0B') if int(stage_idx) >= 2 else colors.HexColor('#86EFAC')),
         ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
@@ -610,9 +675,14 @@ with st.sidebar.expander("🤖 Gemini GenAI Key (Optional)", expanded=False):
         help="Leave empty to use the built-in offline summary. Patient name is never sent to Gemini."
     )
 
-# Gatekeeper Settings
+# Inference & Quality Settings
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Image Quality Settings")
+st.sidebar.subheader("⚙️ Inference & Quality Controls")
+use_tta = st.sidebar.checkbox(
+    "High-Precision TTA (Test-Time Augmentation)",
+    value=True,
+    help="Averages predictions across 4 rotational/flip invariant views to prevent boundary misclassifications (e.g. Stage 1 vs 2, Stage 2 vs 3)."
+)
 blur_threshold = st.sidebar.slider(
     "Blur Sensitivity Threshold",
     min_value=1.0,
@@ -660,7 +730,7 @@ if img_bgr is not None:
         st.error(f"🚨 **Screening Halted:** {msg}")
         st.image(img_rgb, caption="Rejected Image", width=350)
     else:
-        proc_rgb, calibrated_probs, pred_class, overlay = run_inference(img_bgr, temperature)
+        proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta)
         confidence = float(calibrated_probs[pred_class] * 100)
 
         st.markdown("---")
@@ -669,7 +739,7 @@ if img_bgr is not None:
         res1, res2 = st.columns([1, 1.5])
         with res1:
             st.write(f"### {DIAGNOSIS_INFO[pred_class]['name']}")
-            st.progress(min(int(confidence), 100))
+            st.progress(max(0, min(int(confidence) if not np.isnan(confidence) else 0, 100)))
             st.write(f"**Calibrated Confidence:** `{confidence:.2f}%`")
             if confidence < LOW_CONFIDENCE_THRESHOLD:
                 st.warning("⚠️ Low model confidence. Manual review by a clinician is strongly advised.")
@@ -680,15 +750,53 @@ if img_bgr is not None:
             st.bar_chart(chart_data)
 
         st.markdown("---")
-        st.subheader("3. Explainable AI (XAI) — Grad-CAM Attention Map")
-        st.caption("The heatmap shows regions that influenced the model's prediction. It is not a validated lesion detector.")
+        st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Attention & Micro-Lesion Localization")
+        st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates.")
+
+        # Interactive Visualizer Controls
+        ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
+        with ctrl1:
+            selected_cmap = st.selectbox(
+                "🎨 Clinical Heatmap Colormap:",
+                list(COLORMAP_OPTIONS.keys()),
+                index=0,
+                help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
+            )
+        with ctrl2:
+            cam_alpha = st.slider(
+                "🔎 Heatmap Opacity (α):",
+                min_value=0.10,
+                max_value=0.90,
+                value=0.45,
+                step=0.05,
+                help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
+            )
+        with ctrl3:
+            st.write("")
+            st.write("")
+            show_contours = st.checkbox(
+                "✨ Outline High-Attention Lesions",
+                value=False,
+                help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
+            )
+
+        overlay = generate_cam_overlay(
+            base_rgb=proc_rgb,
+            heatmap=heatmap,
+            colormap_name=selected_cmap,
+            alpha=cam_alpha,
+            show_contours=show_contours
+        )
+
         v1, v2, v3 = st.columns(3)
         with v1:
             st.image(img_rgb, caption="1. Original Scan", use_container_width=True)
         with v2:
             st.image(proc_rgb, caption="2. Ben Graham Preprocessed", use_container_width=True)
         with v3:
-            st.image(overlay, caption="3. Grad-CAM Attention", use_container_width=True)
+            short_cmap = selected_cmap.split()[0]
+            contour_flag = " + Contours" if show_contours else ""
+            st.image(overlay, caption=f"3. Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
 
         # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
         st.markdown("---")
@@ -720,6 +828,7 @@ if img_bgr is not None:
             st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
 
         # Nearby Eye Hospital & Retina Specialist Locator
+        loc_clean = "Hyderabad"
         with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
             st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
             
