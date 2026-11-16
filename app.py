@@ -458,6 +458,111 @@ def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api
 
     return _offline_notes(stage_idx, stage_name, confidence, patient_info), False, error_msg
 
+def get_sample_image(stage_num, case_idx=0):
+    """Finds and loads the image for stage_num and case_idx from sample_images directory."""
+    if not os.path.exists("sample_images"):
+        return None, ""
+    matched = []
+    for root, dirs, files in os.walk("sample_images"):
+        for f in sorted(files):
+            if f.lower().startswith(f"stage_{stage_num}") and f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                matched.append(os.path.join(root, f))
+    if 0 <= case_idx < len(matched):
+        path = matched[case_idx]
+        img = cv2.imread(path)
+        return img, path
+    return None, ""
+
+def _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf):
+    overall_stage = max(od_stage, os_stage)
+    diff = abs(od_stage - os_stage)
+    
+    higher_eye_str = "Right Eye (OD)" if od_stage > os_stage else "Left Eye (OS)" if os_stage > od_stage else "Both Eyes (OD & OS)"
+    
+    if diff == 0:
+        asym_text = f"Bilateral concordant involvement: Both eyes present with {DIAGNOSIS_INFO[overall_stage]['name']}."
+        plan_extra = "Routine bilateral monitoring per standard protocol."
+    elif diff == 1:
+        asym_text = f"Mild inter-ocular asymmetry: {higher_eye_str} is at Stage {overall_stage}, while the contralateral eye is at Stage {min(od_stage, os_stage)}. Overall triage urgency is governed by {higher_eye_str}."
+        plan_extra = f"Prioritize specialist consultation for {higher_eye_str}; monitor contralateral eye closely."
+    else:
+        asym_text = f"Marked inter-ocular asymmetry (Δ = {diff} stages): {higher_eye_str} demonstrates Stage {overall_stage}, whereas the contralateral eye is at Stage {min(od_stage, os_stage)}."
+        plan_extra = f"Urgent consultation for {higher_eye_str}. Recommend systemic vascular assessment (carotid artery Doppler ultrasonography) to evaluate for ocular ischemic syndrome or unilateral microvascular risk factors."
+
+    patient_summary = (
+        f"The screening examined both eyes (OD: Right Eye, OS: Left Eye). "
+        f"Right Eye (OD) was assessed as {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% confidence), "
+        f"and Left Eye (OS) was assessed as {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% confidence). "
+        f"Overall clinical triage is determined by the more severe eye ({higher_eye_str}), "
+        f"categorizing overall patient care as {DIAGNOSIS_INFO[overall_stage]['name']}."
+    )
+
+    soap_note = f"""**Subjective:** {patient_info.get('age')} yo patient. Diabetes duration: {patient_info.get('duration')} years. HbA1c: {patient_info.get('hba1c')}%.
+**Objective:** Bilateral retinal screening with automated quality checks.
+- Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% calibrated confidence).
+- Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% calibrated confidence).
+- Inter-Ocular Correlation: {asym_text}
+Grad-CAM++ maps indicate microvascular attention regions; clinician verification required.
+**Assessment:** AI-suggested patient diagnosis: {DIAGNOSIS_INFO[overall_stage]['name']} (governed by {higher_eye_str}). Inter-ocular stage discrepancy: Δ = {diff}.
+**Plan (suggested):** {DIAGNOSIS_INFO[overall_stage]['action']} {plan_extra}"""
+
+    return (
+        f"### Bilateral Patient Summary\n{patient_summary}\n\n"
+        f"### Clinical SOAP Note (Bilateral)\n{soap_note}\n\n"
+        f"*{DISCLAIMER_TEXT}*"
+    )
+
+def _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key):
+    client = genai.Client(api_key=api_key)
+    overall_stage = max(od_stage, os_stage)
+    diff = abs(od_stage - os_stage)
+    higher_eye_str = "Right Eye (OD)" if od_stage > os_stage else "Left Eye (OS)" if os_stage > od_stage else "Both Eyes (OD & OS)"
+    prompt = f"""
+You are an ophthalmic clinical assistant drafting notes for a bilateral diabetic retinopathy screening report.
+Patient: {patient_info.get('age')} years old, diabetes duration {patient_info.get('duration')} years, HbA1c {patient_info.get('hba1c')}%.
+Screening protocol: Bilateral (OD vs. OS).
+Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} with {od_conf:.1f}% calibrated confidence.
+Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} with {os_conf:.1f}% calibrated confidence.
+Overall Patient Stage: {DIAGNOSIS_INFO[overall_stage]['name']} (governed by {higher_eye_str}).
+Inter-Ocular Discrepancy: Δ = {diff} stages.
+
+Rules:
+- Base text ONLY on the automated screening results above.
+- Mention both OD and OS findings and explain that overall urgency is dictated by the worse eye.
+- If inter-ocular discrepancy is >= 2 stages, note that marked asymmetry warrants systemic/carotid Doppler evaluation.
+- State clearly that this is an automated screening result that requires clinician confirmation.
+- Be concise and medically professional.
+
+Write two sections with these exact headings:
+### Bilateral Patient Explanation
+(clear, empathetic, no jargon, explaining both eyes)
+### Clinical SOAP Note (Bilateral)
+(Subjective, Objective, Assessment, Plan for the attending ophthalmologist)
+"""
+    response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+    return response.text
+
+def generate_bilateral_clinical_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key=None):
+    error_msg = None
+    if api_key and GENAI_AVAILABLE:
+        cache = st.session_state.setdefault("gemini_cache", {})
+        key = ("bilateral", od_stage, round(float(od_conf), 1), os_stage, round(float(os_conf), 1),
+               patient_info.get('age'), patient_info.get('duration'), patient_info.get('hba1c'))
+        if key in cache:
+            return cache[key], True, None
+        try:
+            text = _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key)
+            if text:
+                cache[key] = text
+                return text, True, None
+            error_msg = "Gemini returned an empty response."
+        except Exception as e:
+            error_msg = f"Gemini request failed ({type(e).__name__}); showing the offline summary instead."
+    elif api_key and not GENAI_AVAILABLE:
+        error_msg = "google-genai is not installed; showing the offline summary instead."
+
+    return _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf), False, error_msg
+
 # ----------------- PDF REPORT BUILDER -----------------
 _UNSUPPORTED_CHARS = re.compile(r'[^\x00-\x7F\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022]')
 
@@ -614,50 +719,326 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     buffer.seek(0)
     return buffer
 
+def generate_bilateral_pdf_report(
+    patient_info,
+    od_stage_idx, od_confidence, od_orig_rgb, od_cam_rgb, od_blur,
+    os_stage_idx, os_confidence, os_orig_rgb, os_cam_rgb, os_blur,
+    clinical_notes_text
+):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'], fontSize=16, leading=20,
+        textColor=colors.HexColor('#1E3A8A'), alignment=1, spaceAfter=3
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSub', parent=styles['Normal'], fontSize=8.5,
+        textColor=colors.HexColor('#64748B'), alignment=1, spaceAfter=8
+    )
+    header_style = ParagraphStyle(
+        'SectionHead', parent=styles['Heading2'], fontSize=10.5, leading=13,
+        textColor=colors.HexColor('#1E3A8A'), spaceBefore=6, spaceAfter=3
+    )
+    body_style = ParagraphStyle(
+        'DocBody', parent=styles['Normal'], fontSize=8, leading=10.5,
+        textColor=colors.HexColor('#1E293B')
+    )
+    disclaimer_style = ParagraphStyle(
+        'Disclaimer', parent=body_style, fontSize=7, leading=9.5,
+        textColor=colors.HexColor('#B91C1C')
+    )
+
+    overall_stage = max(od_stage_idx, os_stage_idx)
+    diff = abs(od_stage_idx - os_stage_idx)
+
+    # 1. Header
+    elements.append(Paragraph("<b>RETINA INSIGHT CLINICAL REPORT &mdash; BILATERAL SCREENING</b>", title_style))
+    elements.append(Paragraph("Comprehensive Multi-Eye Workup (OD vs. OS), Inter-Ocular Asymmetry &amp; Explainable AI", subtitle_style))
+    elements.append(Spacer(1, 4))
+
+    # 2. Patient Table
+    scan_date = datetime.now().strftime("%d %b %Y, %I:%M %p")
+    p_name_esc = html.escape(str(patient_info.get('name', 'Anonymous')))
+    patient_data = [
+        [Paragraph("<b>Patient Name:</b>", body_style), Paragraph(p_name_esc, body_style),
+         Paragraph("<b>Report Date:</b>", body_style), Paragraph(scan_date, body_style)],
+        [Paragraph("<b>Age / Gender:</b>", body_style), Paragraph(f"{patient_info.get('age', 'N/A')} yrs / {html.escape(str(patient_info.get('gender', 'N/A')))}", body_style),
+         Paragraph("<b>HbA1c Level:</b>", body_style), Paragraph(f"{patient_info.get('hba1c', 'N/A')}%", body_style)],
+        [Paragraph("<b>Diabetes Duration:</b>", body_style), Paragraph(f"{patient_info.get('duration', 'N/A')} Years", body_style),
+         Paragraph("<b>Screening Protocol:</b>", body_style), Paragraph("Bilateral (OD + OS Workup)", body_style)],
+        [Paragraph("<b>Location / Area:</b>", body_style), Paragraph(html.escape(str(patient_info.get('location', 'N/A'))), body_style),
+         Paragraph("<b>Overall Triage Urgency:</b>", body_style), Paragraph(html.escape(str(CLINICAL_PROTOCOLS[overall_stage]['urgency'])), body_style)]
+    ]
+    t_patient = Table(patient_data, colWidths=[95, 175, 95, 175])
+    t_patient.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8FAFC')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#E2E8F0')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    elements.append(t_patient)
+    elements.append(Spacer(1, 6))
+
+    # 3. Overall Patient Diagnosis Banner
+    governing_eye = "Right Eye (OD)" if od_stage_idx > os_stage_idx else "Left Eye (OS)" if os_stage_idx > od_stage_idx else "Bilateral Concordant (OD & OS)"
+    diag_banner = [
+        [Paragraph(f"<b>OVERALL PATIENT DIAGNOSIS:</b> {html.escape(DIAGNOSIS_INFO[overall_stage]['name'].upper())}",
+                   ParagraphStyle('W1', parent=body_style, fontSize=9.5, textColor=colors.white)),
+         Paragraph(f"<b>Governing Eye:</b> {governing_eye}",
+                   ParagraphStyle('W2', parent=body_style, fontSize=8.5, textColor=colors.white, alignment=2))]
+    ]
+    t_diag = Table(diag_banner, colWidths=[360, 180])
+    t_diag.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#1E3A8A')),
+        ('PADDING', (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t_diag)
+    elements.append(Spacer(1, 6))
+
+    # 4. Bilateral Comparative Findings Table
+    asym_status = "Concordant (Symmetric)" if diff == 0 else f"Mild Asymmetry (Δ={diff})" if diff == 1 else f"Marked Asymmetry (Δ={diff} stages)"
+    comp_data = [
+        [Paragraph("<b>Diagnostic Parameter</b>", body_style),
+         Paragraph("<b>Right Eye (OD - Oculus Dexter)</b>", body_style),
+         Paragraph("<b>Left Eye (OS - Oculus Sinister)</b>", body_style),
+         Paragraph("<b>Bilateral Synthesis</b>", body_style)],
+        [Paragraph("<b>Predicted DR Severity:</b>", body_style),
+         Paragraph(f"<b>{html.escape(DIAGNOSIS_INFO[od_stage_idx]['name'])}</b>", body_style),
+         Paragraph(f"<b>{html.escape(DIAGNOSIS_INFO[os_stage_idx]['name'])}</b>", body_style),
+         Paragraph(f"Governed by Stage {overall_stage}", body_style)],
+        [Paragraph("<b>Calibrated Confidence:</b>", body_style),
+         Paragraph(f"{od_confidence:.1f}%", body_style),
+         Paragraph(f"{os_confidence:.1f}%", body_style),
+         Paragraph(asym_status, body_style)],
+        [Paragraph("<b>Acquisition Quality:</b>", body_style),
+         Paragraph(f"Passed (Blur: {od_blur:.1f})", body_style),
+         Paragraph(f"Passed (Blur: {os_blur:.1f})", body_style),
+         Paragraph("Both Eyes Analyzable", body_style)],
+        [Paragraph("<b>Eye-Specific Urgency:</b>", body_style),
+         Paragraph(html.escape(CLINICAL_PROTOCOLS[od_stage_idx]['urgency']), body_style),
+         Paragraph(html.escape(CLINICAL_PROTOCOLS[os_stage_idx]['urgency']), body_style),
+         Paragraph(f"<b>{html.escape(CLINICAL_PROTOCOLS[overall_stage]['timeline'])}</b>", body_style)]
+    ]
+    t_comp = Table(comp_data, colWidths=[120, 145, 145, 130])
+    t_comp.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E2E8F0')),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#FFFFFF')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#94A3B8')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    elements.append(t_comp)
+    elements.append(Spacer(1, 6))
+
+    # 4b. Asymmetry Red-Flag Box if diff >= 2
+    if diff >= 2:
+        asym_alert = [
+            [Paragraph(f"<b>CLINICAL RED FLAG &mdash; MARKED INTER-OCULAR ASYMMETRY (Δ = {diff} STAGES):</b><br/>"
+                       f"The patient demonstrates significant disparity between the right and left eyes. Highly asymmetric "
+                       f"diabetic retinopathy requires clinical investigation for ipsilateral carotid artery occlusive disease "
+                       f"(Ocular Ischemic Syndrome), unilateral glaucoma, or previous laser intervention.",
+                       ParagraphStyle('RedAlert', parent=body_style, fontSize=7.5, textColor=colors.HexColor('#991B1B')))]
+        ]
+        t_asym = Table(asym_alert, colWidths=[540])
+        t_asym.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEE2E2')),
+            ('BOX', (0, 0), (-1, -1), 0.75, colors.HexColor('#EF4444')),
+            ('PADDING', (0, 0), (-1, -1), 4),
+        ]))
+        elements.append(t_asym)
+        elements.append(Spacer(1, 6))
+
+    # 5. Evidence-Based Clinical Referral Pathway (ICO/WHO Guidelines)
+    proto = CLINICAL_PROTOCOLS.get(int(overall_stage), CLINICAL_PROTOCOLS[0])
+    referral_rows = [
+        [Paragraph("<b>Clinical Triage Urgency:</b>", body_style), Paragraph(f"<b>{html.escape(proto['urgency'])}</b>", body_style),
+         Paragraph("<b>Recommended Timeline:</b>", body_style), Paragraph(f"<b>{html.escape(proto['timeline'])}</b>", body_style)],
+        [Paragraph("<b>Referral Care Level:</b>", body_style), Paragraph(html.escape(proto['referral_level']), body_style),
+         Paragraph("<b>Recommended Workup:</b>", body_style), Paragraph(html.escape(proto['workup']), body_style)]
+    ]
+    t_referral = Table(referral_rows, colWidths=[110, 160, 110, 160])
+    t_referral.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF3C7') if int(overall_stage) >= 2 else colors.HexColor('#F0FDF4')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#F59E0B') if int(overall_stage) >= 2 else colors.HexColor('#86EFAC')),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1')),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    elements.append(t_referral)
+    elements.append(Spacer(1, 6))
+
+    # 6. Images: 4 columns side by side
+    img_data = [
+        [Paragraph("<b>OD: Original Fundus</b>", body_style),
+         Paragraph("<b>OD: Grad-CAM++ Attention</b>", body_style),
+         Paragraph("<b>OS: Original Fundus</b>", body_style),
+         Paragraph("<b>OS: Grad-CAM++ Attention</b>", body_style)],
+        [RLImage(_jpeg_buffer(od_orig_rgb), width=128, height=128),
+         RLImage(_jpeg_buffer(od_cam_rgb), width=128, height=128),
+         RLImage(_jpeg_buffer(os_orig_rgb), width=128, height=128),
+         RLImage(_jpeg_buffer(os_cam_rgb), width=128, height=128)]
+    ]
+    t_img = Table(img_data, colWidths=[135, 135, 135, 135])
+    t_img.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 2),
+        ('TOPPADDING', (0, 0), (-1, -1), 1),
+    ]))
+    elements.append(t_img)
+    elements.append(Spacer(1, 6))
+
+    # 7. Bilateral Clinical SOAP Notes
+    elements.append(Paragraph("<b>Clinical Evaluation &amp; Bilateral Decision Support Notes</b>", header_style))
+    elements.extend(_notes_to_flowables(clinical_notes_text, body_style, header_style))
+    elements.append(Spacer(1, 8))
+
+    # 8. Sign-off and disclaimer
+    sign_data = [
+        [Paragraph("<b>Screening Software:</b> Retina Insight v2.0 (Bilateral Screening Module)", body_style),
+         Paragraph("<b>Reviewing Ophthalmologist Sign-off:</b> ___________________", body_style)]
+    ]
+    t_sign = Table(sign_data, colWidths=[290, 250])
+    elements.append(t_sign)
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(f"<b>Disclaimer:</b> {html.escape(DISCLAIMER_TEXT)}", disclaimer_style))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
 # ----------------- SIDEBAR -----------------
-st.sidebar.header("📁 Patient Fundus Input")
-input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
+st.sidebar.header("👁️ Screening Protocol & Input")
+screening_mode = st.sidebar.radio(
+    "Select Screening Protocol:",
+    ["Clinical Bilateral Screening (OD & OS)", "Single Fundus Scan"],
+    index=0,
+    help="Ophthalmic standard of care recommends bilateral examination to capture asymmetric disease and govern triage by the higher-severity eye."
+)
 
 img_bgr = None
 active_source_label = ""
+img_bgr_od = None
+od_source_label = ""
+img_bgr_os = None
+os_source_label = ""
 
-if input_mode == "Upload Custom Scan":
-    uploaded_file = st.sidebar.file_uploader("Upload fundus photograph (.png, .jpg)", type=["png", "jpg", "jpeg"])
-    if uploaded_file is not None:
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        if img_bgr is None:
-            st.sidebar.error("❌ Could not read this file as an image. Please upload a valid PNG or JPG.")
-        else:
-            active_source_label = f"Uploaded File: {uploaded_file.name}"
-else:
-    sel_stage = st.sidebar.selectbox(
-        "Select Severity Stage:",
-        ["Stage 0 (No DR)", "Stage 1 (Mild DR)", "Stage 2 (Moderate DR)", "Stage 3 (Severe DR)", "Stage 4 (Proliferative DR)"]
-    )
-    stage_num = int(sel_stage.split()[1])
+if screening_mode == "Single Fundus Scan":
+    st.sidebar.subheader("📁 Fundus Input (Single Eye)")
+    input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
 
-    matched_images = []
-    if os.path.exists("sample_images"):
-        for root, dirs, files in os.walk("sample_images"):
-            for f in sorted(files):
-                if f.lower().startswith(f"stage_{stage_num}") and f.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    matched_images.append(os.path.join(root, f))
-
-    if len(matched_images) > 0:
-        case_options = [f"Patient Case {i+1}" for i in range(len(matched_images))]
-        sel_case = st.sidebar.selectbox("Select Patient Case:", case_options)
-        case_idx = int(sel_case.split()[-1]) - 1
-
-        chosen_path = matched_images[case_idx]
-        img_bgr = cv2.imread(chosen_path)
-        if img_bgr is None:
-            st.sidebar.error(f"❌ Could not read {chosen_path}.")
-        else:
-            active_source_label = f"Database: {sel_stage} — {sel_case}"
-            st.sidebar.caption(f"📁 {len(matched_images)} case(s) available for Stage {stage_num}")
+    if input_mode == "Upload Custom Scan":
+        uploaded_file = st.sidebar.file_uploader("Upload fundus photograph (.png, .jpg)", type=["png", "jpg", "jpeg"])
+        if uploaded_file is not None:
+            file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+            img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            if img_bgr is None:
+                st.sidebar.error("❌ Could not read this file as an image. Please upload a valid PNG or JPG.")
+            else:
+                active_source_label = f"Uploaded File: {uploaded_file.name}"
     else:
-        st.sidebar.error(f"❌ No images found for Stage {stage_num} in sample_images folder.")
+        sel_stage = st.sidebar.selectbox(
+            "Select Severity Stage:",
+            ["Stage 0 (No DR)", "Stage 1 (Mild DR)", "Stage 2 (Moderate DR)", "Stage 3 (Severe DR)", "Stage 4 (Proliferative DR)"]
+        )
+        stage_num = int(sel_stage.split()[1])
+
+        matched_images = []
+        if os.path.exists("sample_images"):
+            for root, dirs, files in os.walk("sample_images"):
+                for f in sorted(files):
+                    if f.lower().startswith(f"stage_{stage_num}") and f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        matched_images.append(os.path.join(root, f))
+
+        if len(matched_images) > 0:
+            case_options = [f"Patient Case {i+1}" for i in range(len(matched_images))]
+            sel_case = st.sidebar.selectbox("Select Patient Case:", case_options)
+            case_idx = int(sel_case.split()[-1]) - 1
+
+            chosen_path = matched_images[case_idx]
+            img_bgr = cv2.imread(chosen_path)
+            if img_bgr is None:
+                st.sidebar.error(f"❌ Could not read {chosen_path}.")
+            else:
+                active_source_label = f"Database: {sel_stage} — {sel_case}"
+                st.sidebar.caption(f"📁 {len(matched_images)} case(s) available for Stage {stage_num}")
+        else:
+            st.sidebar.error(f"❌ No images found for Stage {stage_num} in sample_images folder.")
+else:
+    st.sidebar.subheader("📁 Bilateral Fundus Input (OD vs. OS)")
+    bilateral_source = st.sidebar.radio(
+        "Bilateral Input Source:",
+        ["Clinical Scenarios & Presets", "Upload Dual Scans (OD & OS)"]
+    )
+    if bilateral_source == "Clinical Scenarios & Presets":
+        preset_choice = st.sidebar.selectbox(
+            "Select Clinical Scenario / Preset:",
+            [
+                "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)",
+                "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)",
+                "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)",
+                "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)",
+                "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)",
+                "Custom Bilateral Selection (OD & OS Pickers)"
+            ]
+        )
+        if preset_choice == "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)":
+            img_bgr_od, _ = get_sample_image(2, case_idx=0)
+            img_bgr_os, _ = get_sample_image(2, case_idx=1)
+            od_source_label = "OD: Stage 2 Case 1"
+            os_source_label = "OS: Stage 2 Case 2"
+        elif preset_choice == "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)":
+            img_bgr_od, _ = get_sample_image(3, case_idx=0)
+            img_bgr_os, _ = get_sample_image(1, case_idx=0)
+            od_source_label = "OD: Stage 3 Case 1"
+            os_source_label = "OS: Stage 1 Case 1"
+        elif preset_choice == "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)":
+            img_bgr_od, _ = get_sample_image(4, case_idx=0)
+            img_bgr_os, _ = get_sample_image(2, case_idx=0)
+            od_source_label = "OD: Stage 4 Case 1"
+            os_source_label = "OS: Stage 2 Case 1"
+        elif preset_choice == "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)":
+            img_bgr_od, _ = get_sample_image(1, case_idx=0)
+            img_bgr_os, _ = get_sample_image(0, case_idx=0)
+            od_source_label = "OD: Stage 1 Case 1"
+            os_source_label = "OS: Stage 0 Case 1"
+        elif preset_choice == "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)":
+            img_bgr_od, _ = get_sample_image(0, case_idx=0)
+            img_bgr_os, _ = get_sample_image(0, case_idx=1)
+            od_source_label = "OD: Stage 0 Case 1"
+            os_source_label = "OS: Stage 0 Case 2"
+        else: # Custom Bilateral Selection
+            st.sidebar.markdown("**Right Eye (OD — Oculus Dexter):**")
+            od_st = st.sidebar.selectbox("OD Stage:", ["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"], index=2, key="od_st_sel")
+            od_stage_num = int(od_st.split()[1])
+            od_cs = st.sidebar.selectbox("OD Patient Case:", [f"Case {i+1}" for i in range(5)], index=0, key="od_cs_sel")
+            od_case_idx = int(od_cs.split()[-1]) - 1
+            img_bgr_od, _ = get_sample_image(od_stage_num, od_case_idx)
+            od_source_label = f"OD: {od_st} {od_cs}"
+
+            st.sidebar.markdown("**Left Eye (OS — Oculus Sinister):**")
+            os_st = st.sidebar.selectbox("OS Stage:", ["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"], index=1, key="os_st_sel")
+            os_stage_num = int(os_st.split()[1])
+            os_cs = st.sidebar.selectbox("OS Patient Case:", [f"Case {i+1}" for i in range(5)], index=0, key="os_cs_sel")
+            os_case_idx = int(os_cs.split()[-1]) - 1
+            img_bgr_os, _ = get_sample_image(os_stage_num, os_case_idx)
+            os_source_label = f"OS: {os_st} {os_cs}"
+    else: # Upload Dual Scans
+        up_od = st.sidebar.file_uploader("Upload Right Eye (OD) Fundus Scan", type=["png", "jpg", "jpeg"], key="up_od_file")
+        if up_od is not None:
+            od_bytes = np.asarray(bytearray(up_od.read()), dtype=np.uint8)
+            img_bgr_od = cv2.imdecode(od_bytes, cv2.IMREAD_COLOR)
+            od_source_label = f"Uploaded OD: {up_od.name}"
+
+        up_os = st.sidebar.file_uploader("Upload Left Eye (OS) Fundus Scan", type=["png", "jpg", "jpeg"], key="up_os_file")
+        if up_os is not None:
+            os_bytes = np.asarray(bytearray(up_os.read()), dtype=np.uint8)
+            img_bgr_os = cv2.imdecode(os_bytes, cv2.IMREAD_COLOR)
+            os_source_label = f"Uploaded OS: {up_os.name}"
 
 # Patient Clinical Context
 st.sidebar.markdown("---")
@@ -708,209 +1089,500 @@ if not temp_from_file:
     st.sidebar.warning("temperature.txt missing or invalid: using the default temperature.")
 
 # ----------------- MAIN SCREEN -----------------
-if img_bgr is not None:
-    st.info(f"🔍 **Active Image:** `{active_source_label}`")
-    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+if screening_mode == "Single Fundus Scan":
+    if img_bgr is not None:
+        st.info(f"🔍 **Active Image:** `{active_source_label}`")
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-    st.subheader("1. Image Quality Check (Automated Heuristics)")
-    is_valid, msg, blur_val, bright_val = assess_image_quality(img_bgr, blur_threshold=blur_threshold)
+        st.subheader("1. Image Quality Check (Automated Heuristics)")
+        is_valid, msg, blur_val, bright_val = assess_image_quality(img_bgr, blur_threshold=blur_threshold)
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if is_valid:
-            st.success(f"✅ {msg}")
-        else:
-            st.error(f"❌ {msg}")
-    with col2:
-        st.metric("Blur Score (Normalized)", f"{blur_val:.1f}")
-    with col3:
-        st.metric("Illumination Intensity", f"{bright_val:.1f}")
-
-    if not is_valid:
-        st.error(f"🚨 **Screening Halted:** {msg}")
-        st.image(img_rgb, caption="Rejected Image", width=350)
-    else:
-        proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta)
-        confidence = float(calibrated_probs[pred_class] * 100)
-
-        st.markdown("---")
-        st.subheader("2. Diagnostic Screening & Reliability")
-
-        res1, res2 = st.columns([1, 1.5])
-        with res1:
-            st.write(f"### {DIAGNOSIS_INFO[pred_class]['name']}")
-            st.progress(max(0, min(int(confidence) if not np.isnan(confidence) else 0, 100)))
-            st.write(f"**Calibrated Confidence:** `{confidence:.2f}%`")
-            if confidence < LOW_CONFIDENCE_THRESHOLD:
-                st.warning("⚠️ Low model confidence. Manual review by a clinician is strongly advised.")
-            st.info(f"**Suggested action:** {DIAGNOSIS_INFO[pred_class]['action']}")
-
-        with res2:
-            chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
-            st.bar_chart(chart_data)
-
-        st.markdown("---")
-        st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Attention & Micro-Lesion Localization")
-        st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates.")
-
-        # Interactive Visualizer Controls
-        ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
-        with ctrl1:
-            selected_cmap = st.selectbox(
-                "🎨 Clinical Heatmap Colormap:",
-                list(COLORMAP_OPTIONS.keys()),
-                index=0,
-                help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
-            )
-        with ctrl2:
-            cam_alpha = st.slider(
-                "🔎 Heatmap Opacity (α):",
-                min_value=0.10,
-                max_value=0.90,
-                value=0.45,
-                step=0.05,
-                help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
-            )
-        with ctrl3:
-            st.write("")
-            st.write("")
-            show_contours = st.checkbox(
-                "✨ Outline High-Attention Lesions",
-                value=False,
-                help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
-            )
-
-        overlay = generate_cam_overlay(
-            base_rgb=proc_rgb,
-            heatmap=heatmap,
-            colormap_name=selected_cmap,
-            alpha=cam_alpha,
-            show_contours=show_contours
-        )
-
-        v1, v2, v3 = st.columns(3)
-        with v1:
-            st.image(img_rgb, caption="1. Original Scan", use_container_width=True)
-        with v2:
-            st.image(proc_rgb, caption="2. Ben Graham Preprocessed", use_container_width=True)
-        with v3:
-            short_cmap = selected_cmap.split()[0]
-            contour_flag = " + Contours" if show_contours else ""
-            st.image(overlay, caption=f"3. Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
-
-        # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
-        st.markdown("---")
-        st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
-        proto = CLINICAL_PROTOCOLS[pred_class]
-
-        c_triage, c_timeline = st.columns([1.2, 1])
-        with c_triage:
-            if pred_class >= 2:
-                st.error(f"🚨 **Triage Priority:** {proto['urgency']}")
-            elif pred_class == 1:
-                st.warning(f"⚠️ **Triage Priority:** {proto['urgency']}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if is_valid:
+                st.success(f"✅ {msg}")
             else:
-                st.success(f"🟢 **Triage Priority:** {proto['urgency']}")
-            st.write(f"**Referral Care Level:** `{proto['referral_level']}`")
-            st.write(f"**Diagnostic Workup:** {proto['workup']}")
+                st.error(f"❌ {msg}")
+        with col2:
+            st.metric("Blur Score (Normalized)", f"{blur_val:.1f}")
+        with col3:
+            st.metric("Illumination Intensity", f"{bright_val:.1f}")
 
-        with c_timeline:
-            st.info(f"⏱️ **Follow-up Timeline:** {proto['timeline']}")
-            if p_hba1c >= 8.0:
-                st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
-
-        # Evidence-Based Systemic & Lifestyle Guidance
-        with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
-            st.write(f"**Clinical Summary:** {proto['summary']}")
-            st.write("**Key Management Goals:**")
-            for goal in proto['target_goals']:
-                st.markdown(f"- {goal}")
-            st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
-
-        # Nearby Eye Hospital & Retina Specialist Locator
-        loc_clean = "Hyderabad"
-        with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
-            st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
-            
-            loc_col1, loc_col2 = st.columns([2.5, 1])
-            with loc_col1:
-                user_loc = st.text_input(
-                    "Enter Patient's City, Area, or PIN Code:",
-                    value="Hyderabad",
-                    help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
-                )
-            with loc_col2:
-                st.write("")
-                st.write("")
-                loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
-
-            encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
-            maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
-            
-            st.link_button(
-                f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
-                url=maps_url,
-                use_container_width=True
-            )
-            st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
-            for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
-                st.markdown(f"**{region}:**")
-                for h in hospitals:
-                    st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
-
-        # ----------------- SECTION 5: NOTES & PDF EXPORT -----------------
-        st.markdown("---")
-        st.subheader("5. Clinical Notes & PDF Report")
-
-        patient_info_dict = {
-            "name": p_name,
-            "age": p_age,
-            "gender": p_gender,
-            "duration": p_duration,
-            "hba1c": p_hba1c,
-            "location": loc_clean
-        }
-
-        notes_text, is_gemini, notes_error = generate_clinical_notes(
-            stage_idx=pred_class,
-            stage_name=DIAGNOSIS_INFO[pred_class]['name'],
-            confidence=confidence,
-            patient_info=patient_info_dict,
-            api_key=gemini_key.strip() if gemini_key else None
-        )
-
-        if notes_error:
-            st.warning(f"ℹ️ {notes_error}")
-        if is_gemini:
-            st.success("🤖 Notes drafted by **Gemini (gemini-2.5-flash)** from the screening result only. Review before use.")
+        if not is_valid:
+            st.error(f"🚨 **Screening Halted:** {msg}")
+            st.image(img_rgb, caption="Rejected Image", width=350)
         else:
-            st.caption("ℹ️ Notes generated by the built-in offline summary engine.")
+            proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta)
+            confidence = float(calibrated_probs[pred_class] * 100)
 
-        st.markdown(notes_text)
+            st.markdown("---")
+            st.subheader("2. Diagnostic Screening & Reliability")
 
-        
-        st.markdown("#### 📄 Export Screening Report")
-        try:
-            pdf_bytes = generate_pdf_report(
-                patient_info=patient_info_dict,
+            res1, res2 = st.columns([1, 1.5])
+            with res1:
+                st.write(f"### {DIAGNOSIS_INFO[pred_class]['name']}")
+                st.progress(max(0, min(int(confidence) if not np.isnan(confidence) else 0, 100)))
+                st.write(f"**Calibrated Confidence:** `{confidence:.2f}%`")
+                if confidence < LOW_CONFIDENCE_THRESHOLD:
+                    st.warning("⚠️ Low model confidence. Manual review by a clinician is strongly advised.")
+                st.info(f"**Suggested action:** {DIAGNOSIS_INFO[pred_class]['action']}")
+
+            with res2:
+                chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
+                st.bar_chart(chart_data)
+
+            st.markdown("---")
+            st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Attention & Micro-Lesion Localization")
+            st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates.")
+
+            # Interactive Visualizer Controls
+            ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
+            with ctrl1:
+                selected_cmap = st.selectbox(
+                    "🎨 Clinical Heatmap Colormap:",
+                    list(COLORMAP_OPTIONS.keys()),
+                    index=0,
+                    help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
+                )
+            with ctrl2:
+                cam_alpha = st.slider(
+                    "🔎 Heatmap Opacity (α):",
+                    min_value=0.10,
+                    max_value=0.90,
+                    value=0.45,
+                    step=0.05,
+                    help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
+                )
+            with ctrl3:
+                st.write("")
+                st.write("")
+                show_contours = st.checkbox(
+                    "✨ Outline High-Attention Lesions",
+                    value=False,
+                    help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
+                )
+
+            overlay = generate_cam_overlay(
+                base_rgb=proc_rgb,
+                heatmap=heatmap,
+                colormap_name=selected_cmap,
+                alpha=cam_alpha,
+                show_contours=show_contours
+            )
+
+            v1, v2, v3 = st.columns(3)
+            with v1:
+                st.image(img_rgb, caption="1. Original Scan", use_container_width=True)
+            with v2:
+                st.image(proc_rgb, caption="2. Ben Graham Preprocessed", use_container_width=True)
+            with v3:
+                short_cmap = selected_cmap.split()[0]
+                contour_flag = " + Contours" if show_contours else ""
+                st.image(overlay, caption=f"3. Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+
+            # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
+            st.markdown("---")
+            st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
+            proto = CLINICAL_PROTOCOLS[pred_class]
+
+            c_triage, c_timeline = st.columns([1.2, 1])
+            with c_triage:
+                if pred_class >= 2:
+                    st.error(f"🚨 **Triage Priority:** {proto['urgency']}")
+                elif pred_class == 1:
+                    st.warning(f"⚠️ **Triage Priority:** {proto['urgency']}")
+                else:
+                    st.success(f"🟢 **Triage Priority:** {proto['urgency']}")
+                st.write(f"**Referral Care Level:** `{proto['referral_level']}`")
+                st.write(f"**Diagnostic Workup:** {proto['workup']}")
+
+            with c_timeline:
+                st.info(f"⏱️ **Follow-up Timeline:** {proto['timeline']}")
+                if p_hba1c >= 8.0:
+                    st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
+
+            # Evidence-Based Systemic & Lifestyle Guidance
+            with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
+                st.write(f"**Clinical Summary:** {proto['summary']}")
+                st.write("**Key Management Goals:**")
+                for goal in proto['target_goals']:
+                    st.markdown(f"- {goal}")
+                st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
+
+            # Nearby Eye Hospital & Retina Specialist Locator
+            loc_clean = "Hyderabad"
+            with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
+                st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
+                
+                loc_col1, loc_col2 = st.columns([2.5, 1])
+                with loc_col1:
+                    user_loc = st.text_input(
+                        "Enter Patient's City, Area, or PIN Code:",
+                        value="Hyderabad",
+                        help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
+                    )
+                with loc_col2:
+                    st.write("")
+                    st.write("")
+                    loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
+
+                encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
+                maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
+                
+                st.link_button(
+                    f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
+                    url=maps_url,
+                    use_container_width=True
+                )
+                st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
+                for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
+                    st.markdown(f"**{region}:**")
+                    for h in hospitals:
+                        st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
+
+            # ----------------- SECTION 5: NOTES & PDF EXPORT -----------------
+            st.markdown("---")
+            st.subheader("5. Clinical Notes & PDF Report")
+
+            patient_info_dict = {
+                "name": p_name,
+                "age": p_age,
+                "gender": p_gender,
+                "duration": p_duration,
+                "hba1c": p_hba1c,
+                "location": loc_clean
+            }
+
+            notes_text, is_gemini, notes_error = generate_clinical_notes(
+                stage_idx=pred_class,
                 stage_name=DIAGNOSIS_INFO[pred_class]['name'],
                 confidence=confidence,
-                original_rgb=cv2.resize(img_rgb, (300, 300)),
-                gradcam_rgb=cv2.resize(overlay, (300, 300)),
-                clinical_notes_text=notes_text,
-                stage_idx=pred_class
+                patient_info=patient_info_dict,
+                api_key=gemini_key.strip() if gemini_key else None
             )
 
-            safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
-            clean_filename = f"Retina_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
-            st.download_button(
-                label="📥 Download Screening Report (PDF)",
-                data=pdf_bytes,
-                file_name=clean_filename,
-                mime="application/pdf",
-                use_container_width=True
-            )
-        except Exception as e:
-            st.error(f"Could not compile PDF: {e}")
+            if notes_error:
+                st.warning(f"ℹ️ {notes_error}")
+            if is_gemini:
+                st.success("🤖 Notes drafted by **Gemini (gemini-2.5-flash)** from the screening result only. Review before use.")
+            else:
+                st.caption("ℹ️ Notes generated by the built-in offline summary engine.")
+
+            st.markdown(notes_text)
+
+            st.markdown("#### 📄 Export Screening Report")
+            try:
+                pdf_bytes = generate_pdf_report(
+                    patient_info=patient_info_dict,
+                    stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+                    confidence=confidence,
+                    original_rgb=cv2.resize(img_rgb, (300, 300)),
+                    gradcam_rgb=cv2.resize(overlay, (300, 300)),
+                    clinical_notes_text=notes_text,
+                    stage_idx=pred_class
+                )
+
+                safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
+                clean_filename = f"Retina_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                st.download_button(
+                    label="📥 Download Screening Report (PDF)",
+                    data=pdf_bytes,
+                    file_name=clean_filename,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Could not compile PDF: {e}")
+    else:
+        st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
 else:
-    st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
+    # ----------------- BILATERAL SCREENING PROTOCOL (OD vs. OS) -----------------
+    if img_bgr_od is None or img_bgr_os is None:
+        st.info("👈 Please select or upload fundus photographs for both the **Right Eye (OD)** and **Left Eye (OS)** in the sidebar to begin bilateral screening.")
+        c_u1, c_u2 = st.columns(2)
+        with c_u1:
+            if img_bgr_od is not None:
+                st.success(f"✅ Right Eye (OD) Loaded: `{od_source_label}`")
+            else:
+                st.warning("⚠️ Right Eye (OD — Oculus Dexter) scan pending.")
+        with c_u2:
+            if img_bgr_os is not None:
+                st.success(f"✅ Left Eye (OS) Loaded: `{os_source_label}`")
+            else:
+                st.warning("⚠️ Left Eye (OS — Oculus Sinister) scan pending.")
+    else:
+        st.info(f"🔍 **Active Bilateral Workup:** Right Eye (OD): `{od_source_label}` &nbsp;|&nbsp; Left Eye (OS): `{os_source_label}`")
+        img_rgb_od = cv2.cvtColor(img_bgr_od, cv2.COLOR_BGR2RGB)
+        img_rgb_os = cv2.cvtColor(img_bgr_os, cv2.COLOR_BGR2RGB)
+
+        st.subheader("1. Bilateral Image Quality Check (Automated Heuristics)")
+        is_valid_od, msg_od, blur_od, bright_od = assess_image_quality(img_bgr_od, blur_threshold=blur_threshold)
+        is_valid_os, msg_os, blur_os, bright_os = assess_image_quality(img_bgr_os, blur_threshold=blur_threshold)
+
+        q1, q2 = st.columns(2)
+        with q1:
+            st.markdown("#### 👁️ Right Eye (OD — Oculus Dexter)")
+            if is_valid_od:
+                st.success(f"✅ {msg_od}")
+            else:
+                st.error(f"❌ {msg_od}")
+            m1, m2 = st.columns(2)
+            m1.metric("OD Blur Score", f"{blur_od:.1f}")
+            m2.metric("OD Illumination", f"{bright_od:.1f}")
+
+        with q2:
+            st.markdown("#### 👁️ Left Eye (OS — Oculus Sinister)")
+            if is_valid_os:
+                st.success(f"✅ {msg_os}")
+            else:
+                st.error(f"❌ {msg_os}")
+            m3, m4 = st.columns(2)
+            m3.metric("OS Blur Score", f"{blur_os:.1f}")
+            m4.metric("OS Illumination", f"{bright_os:.1f}")
+
+        if not is_valid_od or not is_valid_os:
+            st.error("🚨 **Bilateral Screening Halted:** One or both images failed clinical quality heuristics. Please re-acquire or upload clear fundus images.")
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                st.image(img_rgb_od, caption=f"Right Eye (OD): {'Passed' if is_valid_od else 'Rejected'}", use_container_width=True)
+            with r_col2:
+                st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected'}", use_container_width=True)
+        else:
+            # 2. Run Inference & Grad-CAM++ for both eyes
+            proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(img_bgr_od, temperature, use_tta=use_tta)
+            proc_rgb_os, probs_os, pred_class_os, heatmap_os = run_inference(img_bgr_os, temperature, use_tta=use_tta)
+            conf_od = float(probs_od[pred_class_od] * 100)
+            conf_os = float(probs_os[pred_class_os] * 100)
+
+            overall_stage = max(pred_class_od, pred_class_os)
+            stage_diff = abs(pred_class_od - pred_class_os)
+            higher_eye_label = "Right Eye (OD)" if pred_class_od > pred_class_os else "Left Eye (OS)" if pred_class_os > pred_class_od else "Both Eyes (Bilateral Concordance)"
+            proto_overall = CLINICAL_PROTOCOLS[overall_stage]
+
+            st.markdown("---")
+            st.subheader("2. Bilateral Diagnostic Screening & Inter-Ocular Asymmetry")
+
+            # Overall Patient Triage Card
+            st.markdown(
+                f"""<div style="background-color: #1E3A8A; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;">
+                <h3 style="margin: 0; color: white;">🏥 OVERALL PATIENT TRIAGE: {DIAGNOSIS_INFO[overall_stage]['name'].upper()}</h3>
+                <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.95;">
+                <b>Governing Eye:</b> {higher_eye_label} &nbsp;|&nbsp; 
+                <b>Clinical Urgency:</b> {proto_overall['urgency']} &nbsp;|&nbsp; 
+                <b>Follow-up Timeline:</b> {proto_overall['timeline']}
+                </p>
+                </div>""",
+                unsafe_allow_html=True
+            )
+
+            # Asymmetry Assessment
+            if stage_diff == 0:
+                st.success(f"🟢 **Bilateral Concordance (Symmetric Involvement):** Both eyes exhibit identical microvascular severity ({DIAGNOSIS_INFO[overall_stage]['name']}). Typical systemic manifestation of diabetic retinopathy.")
+            elif stage_diff == 1:
+                st.warning(f"⚠️ **Mild Inter-Ocular Asymmetry (Δ = 1 Stage):** Disparity in microvascular lesion load between eyes ({higher_eye_label} at Stage {overall_stage} vs. contralateral eye at Stage {min(pred_class_od, pred_class_os)}). Triage protocol is governed strictly by the higher-severity eye.")
+            else:
+                st.error(f"🚨 **CLINICAL RED FLAG — MARKED INTER-OCULAR ASYMMETRY (Δ = {stage_diff} Stages):** Significant inter-ocular discrepancy detected ({higher_eye_label} is Stage {overall_stage}, while contralateral eye is Stage {min(pred_class_od, pred_class_os)}). Highly asymmetric DR is uncommon and warrants urgent carotid duplex Doppler ultrasonography (to rule out ipsilateral Ocular Ischemic Syndrome / carotid stenosis) and evaluation for asymmetric glaucoma or previous vascular compromise.")
+
+            # Dual KPI Cards
+            kpi1, kpi2 = st.columns(2)
+            with kpi1:
+                st.markdown(f"#### 👁️ Right Eye (OD): {DIAGNOSIS_INFO[pred_class_od]['name']}")
+                st.progress(max(0, min(int(conf_od) if not np.isnan(conf_od) else 0, 100)))
+                st.write(f"**Calibrated Confidence:** `{conf_od:.2f}%`")
+                if conf_od < LOW_CONFIDENCE_THRESHOLD:
+                    st.warning("⚠️ Low model confidence for OD. Clinician review advised.")
+                st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_od]['action']}")
+
+            with kpi2:
+                st.markdown(f"#### 👁️ Left Eye (OS): {DIAGNOSIS_INFO[pred_class_os]['name']}")
+                st.progress(max(0, min(int(conf_os) if not np.isnan(conf_os) else 0, 100)))
+                st.write(f"**Calibrated Confidence:** `{conf_os:.2f}%`")
+                if conf_os < LOW_CONFIDENCE_THRESHOLD:
+                    st.warning("⚠️ Low model confidence for OS. Clinician review advised.")
+                st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_os]['action']}")
+
+            # Comparative Probability Bar Chart
+            st.markdown("##### 📊 Comparative Stage Probability Distribution (OD vs. OS)")
+            chart_df = pd.DataFrame({
+                "Right Eye (OD) %": [round(float(probs_od[i] * 100), 2) for i in range(5)],
+                "Left Eye (OS) %": [round(float(probs_os[i] * 100), 2) for i in range(5)]
+            }, index=[f"Stage {i}" for i in range(5)])
+            st.bar_chart(chart_df)
+
+            # Section 3: Explainable AI (Grad-CAM++)
+            st.markdown("---")
+            st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Dual-Eye Lesion Localization")
+            st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates across both retinas.")
+
+            ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
+            with ctrl1:
+                selected_cmap = st.selectbox(
+                    "🎨 Clinical Heatmap Colormap:",
+                    list(COLORMAP_OPTIONS.keys()),
+                    index=0,
+                    key="bilateral_cmap",
+                    help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
+                )
+            with ctrl2:
+                cam_alpha = st.slider(
+                    "🔎 Heatmap Opacity (α):",
+                    min_value=0.10,
+                    max_value=0.90,
+                    value=0.45,
+                    step=0.05,
+                    key="bilateral_alpha",
+                    help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
+                )
+            with ctrl3:
+                st.write("")
+                st.write("")
+                show_contours = st.checkbox(
+                    "✨ Outline High-Attention Lesions",
+                    value=False,
+                    key="bilateral_contours",
+                    help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
+                )
+
+            overlay_od = generate_cam_overlay(proc_rgb_od, heatmap_od, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
+            overlay_os = generate_cam_overlay(proc_rgb_os, heatmap_os, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
+
+            short_cmap = selected_cmap.split()[0]
+            contour_flag = " + Contours" if show_contours else ""
+
+            v_od, v_os = st.columns(2)
+            with v_od:
+                st.markdown("#### 👁️ Right Eye (OD) Workup")
+                od_t1, od_t2, od_t3 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention"])
+                with od_t1:
+                    st.image(img_rgb_od, caption="OD: Original Retinal Scan", use_container_width=True)
+                with od_t2:
+                    st.image(proc_rgb_od, caption="OD: Ben Graham Enhanced (256x256)", use_container_width=True)
+                with od_t3:
+                    st.image(overlay_od, caption=f"OD: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+
+            with v_os:
+                st.markdown("#### 👁️ Left Eye (OS) Workup")
+                os_t1, os_t2, os_t3 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention"])
+                with os_t1:
+                    st.image(img_rgb_os, caption="OS: Original Retinal Scan", use_container_width=True)
+                with os_t2:
+                    st.image(proc_rgb_os, caption="OS: Ben Graham Enhanced (256x256)", use_container_width=True)
+                with os_t3:
+                    st.image(overlay_os, caption=f"OS: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+
+            # Section 4: Clinical Care Pathway & Specialist Referral
+            st.markdown("---")
+            st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
+            c_triage, c_timeline = st.columns([1.2, 1])
+            with c_triage:
+                if overall_stage >= 2:
+                    st.error(f"🚨 **Overall Triage Priority:** {proto_overall['urgency']}")
+                elif overall_stage == 1:
+                    st.warning(f"⚠️ **Overall Triage Priority:** {proto_overall['urgency']}")
+                else:
+                    st.success(f"🟢 **Overall Triage Priority:** {proto_overall['urgency']}")
+                st.write(f"**Referral Care Level:** `{proto_overall['referral_level']}`")
+                st.write(f"**Diagnostic Workup:** {proto_overall['workup']}")
+
+            with c_timeline:
+                st.info(f"⏱️ **Follow-up Timeline:** {proto_overall['timeline']}")
+                if p_hba1c >= 8.0:
+                    st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
+
+            # Evidence-Based Systemic & Lifestyle Guidance
+            with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
+                st.write(f"**Clinical Summary:** {proto_overall['summary']}")
+                st.write("**Key Management Goals:**")
+                for goal in proto_overall['target_goals']:
+                    st.markdown(f"- {goal}")
+                st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
+
+            # Nearby Eye Hospital Locator
+            loc_clean = "Hyderabad"
+            with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(overall_stage >= 2)):
+                st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
+                loc_col1, loc_col2 = st.columns([2.5, 1])
+                with loc_col1:
+                    user_loc = st.text_input(
+                        "Enter Patient's City, Area, or PIN Code:",
+                        value="Hyderabad",
+                        key="bilateral_loc_input",
+                        help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
+                    )
+                with loc_col2:
+                    st.write("")
+                    st.write("")
+                    loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
+
+                encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
+                maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
+                st.link_button(
+                    f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
+                    url=maps_url,
+                    use_container_width=True
+                )
+                st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
+                for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
+                    st.markdown(f"**{region}:**")
+                    for h in hospitals:
+                        st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
+
+            # Section 5: Bilateral Clinical Notes & PDF Report
+            st.markdown("---")
+            st.subheader("5. Bilateral Clinical Notes & Unified PDF Report")
+
+            patient_info_dict = {
+                "name": p_name,
+                "age": p_age,
+                "gender": p_gender,
+                "duration": p_duration,
+                "hba1c": p_hba1c,
+                "location": loc_clean
+            }
+
+            notes_text, is_gemini, notes_error = generate_bilateral_clinical_notes(
+                patient_info=patient_info_dict,
+                od_stage=pred_class_od,
+                od_conf=conf_od,
+                os_stage=pred_class_os,
+                os_conf=conf_os,
+                api_key=gemini_key.strip() if gemini_key else None
+            )
+
+            if notes_error:
+                st.warning(f"ℹ️ {notes_error}")
+            if is_gemini:
+                st.success("🤖 Bilateral notes drafted by **Gemini (gemini-2.5-flash)** from the screening result only. Review before use.")
+            else:
+                st.caption("ℹ️ Bilateral notes generated by the built-in offline clinical engine.")
+
+            st.markdown(notes_text)
+
+            st.markdown("#### 📄 Export Bilateral Screening Report")
+            try:
+                pdf_bytes = generate_bilateral_pdf_report(
+                    patient_info=patient_info_dict,
+                    od_stage_idx=pred_class_od,
+                    od_confidence=conf_od,
+                    od_orig_rgb=cv2.resize(img_rgb_od, (300, 300)),
+                    od_cam_rgb=cv2.resize(overlay_od, (300, 300)),
+                    od_blur=blur_od,
+                    os_stage_idx=pred_class_os,
+                    os_confidence=conf_os,
+                    os_orig_rgb=cv2.resize(img_rgb_os, (300, 300)),
+                    os_cam_rgb=cv2.resize(overlay_os, (300, 300)),
+                    os_blur=blur_os,
+                    clinical_notes_text=notes_text
+                )
+
+                safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
+                clean_filename = f"Retina_Bilateral_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                st.download_button(
+                    label="📥 Download Bilateral Screening Report (PDF)",
+                    data=pdf_bytes,
+                    file_name=clean_filename,
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Could not compile Bilateral PDF: {e}")
