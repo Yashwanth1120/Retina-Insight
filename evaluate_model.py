@@ -187,7 +187,7 @@ def preprocess_image(path, crop=False):
     enhanced = cv2.addWeighted(bgr, 4, blurred, -4, 128)
     return Image.fromarray(cv2.cvtColor(enhanced, cv2.COLOR_BGR2RGB))
 
-def get_logits(model, samples, device, batch_size=32, crop=False):
+def get_logits(model, samples, device, batch_size=32, crop=False, use_tta=False):
     import torch
     from torchvision import transforms
     tf = transforms.Compose([
@@ -195,6 +195,29 @@ def get_logits(model, samples, device, batch_size=32, crop=False):
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
     ])
     all_logits, kept = [], []
+
+    if use_tta:
+        from PIL import Image
+        for i, (path, _) in enumerate(samples):
+            img = preprocess_image(path, crop)
+            if img is None:
+                print(f"[skip] unreadable image {path}")
+                continue
+            img_np = np.array(img)
+            tta_tensors = [
+                tf(img),
+                tf(Image.fromarray(np.fliplr(img_np).copy())),
+                tf(Image.fromarray(np.flipud(img_np).copy())),
+                tf(Image.fromarray(np.rot90(img_np, 2).copy()))
+            ]
+            with torch.no_grad():
+                out = model(torch.stack(tta_tensors).to(device)).mean(dim=0, keepdim=True).cpu().numpy()
+            all_logits.append(out)
+            kept.append(i)
+            if (i + 1) % 50 == 0:
+                print(f"  processed {i + 1}/{len(samples)}")
+        return (np.concatenate(all_logits, axis=0) if all_logits else np.empty((0, NUM_CLASSES))), kept
+
     batch, batch_idx = [], []
 
     def flush():
@@ -219,7 +242,7 @@ def get_logits(model, samples, device, batch_size=32, crop=False):
         if (i + 1) % 200 == 0:
             print(f"  processed {i + 1}/{len(samples)}")
     flush()
-    return np.concatenate(all_logits, axis=0), kept
+    return (np.concatenate(all_logits, axis=0) if all_logits else np.empty((0, NUM_CLASSES))), kept
 
 # ======================= PLOTS =======================
 def save_plots(cm, bins_raw, bins_cal, ece_raw, ece_cal, out_dir):
@@ -263,6 +286,8 @@ def main():
     ap.add_argument("--out", default="eval_results")
     ap.add_argument("--crop", action="store_true",
                     help="crop black borders and pad to square before resizing (differs from app.py preprocessing)")
+    ap.add_argument("--tta", action="store_true",
+                    help="enable 4-fold Test-Time Augmentation (flips and rotation) for maximum accuracy")
     args = ap.parse_args()
 
     import torch
@@ -272,12 +297,12 @@ def main():
     samples = collect_samples(args.data, args.csv, args.id_col, args.label_col)
     if not samples:
         raise SystemExit("No labelled images found. Check --data / --csv.")
-    print(f"Found {len(samples)} labelled images. Running model on {device}...")
+    print(f"Found {len(samples)} labelled images. Running model on {device} (TTA: {'ON' if args.tta else 'off'})...")
 
     with open(args.temp) as f:
         temperature = float(f.read().strip())
     model = load_model(args.model, device)
-    logits, kept = get_logits(model, samples, device, crop=args.crop)
+    logits, kept = get_logits(model, samples, device, crop=args.crop, use_tta=args.tta)
     y_true = np.array([samples[i][1] for i in kept])
     paths = [samples[i][0] for i in kept]
 
@@ -310,7 +335,7 @@ def main():
 
     lines = []
     P = lines.append
-    P(f"Images evaluated: {len(y_true)}   (temperature T = {temperature:.4f})   Border crop: {'ON' if args.crop else 'off (same as app.py)'}")
+    P(f"Images evaluated: {len(y_true)}   (temperature T = {temperature:.4f})   TTA: {'ON' if args.tta else 'off'}   Border crop: {'ON' if args.crop else 'off (same as app.py)'}")
     P(f"Accuracy: {acc*100:.2f}%   Within +/-1 stage: {adjacent*100:.2f}%   Mean abs. stage error: {mae:.3f}")
     P(f"Quadratic weighted kappa (QWK): {qwk:.4f}")
     P(f"Over-graded (pred > true): {over}   Under-graded (pred < true): {under}")

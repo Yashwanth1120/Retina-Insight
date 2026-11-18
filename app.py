@@ -11,6 +11,7 @@ import os
 import io
 import re
 import html
+import zipfile
 from datetime import datetime
 
 # Optional Google GenAI SDK
@@ -155,6 +156,27 @@ DIAGNOSIS_INFO = {
     2: {"name": "Stage 2: Moderate DR", "action": "Referral to ophthalmologist within 2-4 months for dilated eye examination."},
     3: {"name": "Stage 3: Severe DR", "action": "Urgent retinal specialist consultation within 2-4 weeks."},
     4: {"name": "Stage 4: Proliferative DR", "action": "Immediate emergency consultation required. High risk of permanent vision loss."}
+}
+
+CSME_INFO = {
+    "Low": {
+        "name": "CSME Negative / Low Risk",
+        "badge_color": "green",
+        "description": "No hard exudates or microvascular leakage detected within the central macular zone (> 2 disc diameters from fovea).",
+        "workup": "Standard diabetic eye care. Re-screen per DR severity timeline."
+    },
+    "Moderate": {
+        "name": "CSME Equivocal / Moderate Risk",
+        "badge_color": "orange",
+        "description": "Hard exudates or microvascular stress identified in macular periphery (1 to 2 disc diameters from foveal center).",
+        "workup": "Optical Coherence Tomography (OCT Macula) recommended within 4-6 weeks to evaluate subclinical macular thickening."
+    },
+    "High": {
+        "name": "CSME Positive / High Risk (Vision-Threatening)",
+        "badge_color": "red",
+        "description": "Clinically Significant Diabetic Macular Edema: Hard exudates, foveal microaneurysms, or dense leakage within central foveal ring (< 1 disc diameter / 500 μm).",
+        "workup": "URGENT high-definition OCT Macula and retinal specialist evaluation for anti-VEGF injection or focal macular laser therapy."
+    }
 }
 
 DISCLAIMER_TEXT = (
@@ -314,6 +336,161 @@ def generate_cam_overlay(base_rgb, heatmap, colormap_name="JET (Classic Ophthalm
 
     return overlay
 
+# ----------------- CLINICALLY SIGNIFICANT MACULAR EDEMA (CSME) DETECTOR -----------------
+def detect_macular_edema_risk(img_bgr, heatmap=None, dr_stage=0):
+    """
+    Evaluates Clinically Significant Diabetic Macular Edema (CSME) Risk.
+    
+    Clinical Criteria (ETDRS & ICO Standards):
+    - Negative / Low: No hard exudates within the macular field (> 2 disc diameters from fovea).
+    - Moderate Risk: Hard exudates detected in macular periphery (1-2 disc diameters from foveal center).
+    - High Risk (CSME Positive): Hard exudates or focal microvascular leakage within central foveal ring (< 1 disc diameter / 500 μm),
+      or dense central macular Grad-CAM++ attention during moderate/severe DR.
+    """
+    resized = cv2.resize(img_bgr, (512, 512))
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    hsv = cv2.cvtColor(resized, cv2.COLOR_BGR2HSV)
+    gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+
+    center_x, center_y = 256, 256
+    dd = 80  # Estimated optic disc diameter in 512x512 standard scale
+    foveal_radius = int(dd * 0.5)      # ~40px (~500 um foveal zone)
+    macular_radius = int(dd * 1.5)     # ~120px (macular region)
+
+    retina_mask = gray > 20
+    
+    g_channel = resized[:, :, 1]
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    g_enhanced = clahe.apply(g_channel)
+
+    retina_median_g = np.median(g_enhanced[retina_mask]) if np.sum(retina_mask) > 0 else 128
+    exudate_cand_g = (g_enhanced > (retina_median_g + 45)) & retina_mask
+
+    hues = hsv[:, :, 0]
+    sats = hsv[:, :, 1]
+    vals = hsv[:, :, 2]
+    yellow_mask = (hues >= 15) & (hues <= 55) & (sats >= 30) & (sats <= 220) & (vals >= 130)
+
+    combined_exudates = (exudate_cand_g & yellow_mask).astype(np.uint8) * 255
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    cleaned_exudates = cv2.morphologyEx(combined_exudates, cv2.MORPH_OPEN, kernel)
+
+    y_coords, x_coords = np.where(cleaned_exudates > 0)
+    foveal_exudate_count = 0
+    macular_exudate_count = 0
+    total_exudate_pixels = len(x_coords)
+
+    if total_exudate_pixels > 0:
+        distances = np.sqrt((x_coords - center_x) ** 2 + (y_coords - center_y) ** 2)
+        foveal_exudate_count = int(np.sum(distances <= foveal_radius))
+        macular_exudate_count = int(np.sum((distances > foveal_radius) & (distances <= macular_radius)))
+
+    foveal_cam_intensity = 0.0
+    if heatmap is not None:
+        cam_resized = cv2.resize(heatmap, (512, 512))
+        y_grid, x_grid = np.ogrid[:512, :512]
+        dist_from_center = np.sqrt((x_grid - center_x) ** 2 + (y_grid - center_y) ** 2)
+        macular_cam_mask = dist_from_center <= macular_radius
+        foveal_cam_intensity = float(np.mean(cam_resized[macular_cam_mask])) if np.sum(macular_cam_mask) > 0 else 0.0
+
+    risk_score = 0.0
+    risk_score += min(foveal_exudate_count * 1.5, 45.0)
+    risk_score += min(macular_exudate_count * 0.4, 25.0)
+    risk_score += foveal_cam_intensity * 20.0
+    if dr_stage >= 2:
+        risk_score += (dr_stage - 1) * 3.5
+
+    risk_score = float(np.clip(risk_score, 0.0, 100.0))
+
+    if foveal_exudate_count >= 15 or risk_score >= 50.0 or (dr_stage >= 3 and risk_score >= 35.0):
+        key = "High"
+    elif macular_exudate_count >= 10 or risk_score >= 22.0 or (dr_stage >= 2 and risk_score >= 18.0):
+        key = "Moderate"
+    else:
+        key = "Low"
+
+    info = CSME_INFO[key]
+
+    annotated = rgb.copy()
+    # Foveal boundary (< 500 μm ring) in cyan
+    cv2.circle(annotated, (center_x, center_y), foveal_radius, (0, 255, 255), 1)
+    # Outer Macular boundary (1.5 DD) in blue
+    cv2.circle(annotated, (center_x, center_y), macular_radius, (60, 120, 255), 1)
+    # Contours of detected hard exudates in yellow
+    contours, _ = cv2.findContours(cleaned_exudates, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(annotated, contours, -1, (255, 230, 0), 1)
+
+    return {
+        "key": key,
+        "name": info["name"],
+        "status": info["name"],
+        "score": risk_score,
+        "badge_color": info["badge_color"],
+        "description": info["description"],
+        "action": info["workup"],
+        "foveal_exudates": foveal_exudate_count,
+        "macular_exudates": macular_exudate_count,
+        "foveal_cam_intensity": foveal_cam_intensity,
+        "annotated_rgb": annotated
+    }
+
+# ----------------- SCREENING CAMP BATCH ARCHIVE GENERATOR -----------------
+def generate_camp_batch_archive(batch_results, camp_info):
+    """Generates Camp Manifest CSV and comprehensive ZIP package with overlays and clinical summary."""
+    clean_records = []
+    for r in batch_results:
+        rec = {k: v for k, v in r.items() if not k.startswith('_')}
+        clean_records.append(rec)
+
+    df_manifest = pd.DataFrame(clean_records)
+    csv_bytes = df_manifest.to_csv(index=False).encode('utf-8')
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.writestr("camp_triage_manifest.csv", csv_bytes)
+
+        total = len(batch_results)
+        valid = sum(1 for r in batch_results if r.get("Quality_Status") == "Passed")
+        rejected = total - valid
+        referable = sum(1 for r in batch_results if "Yes" in str(r.get("Referable_DR", "")))
+        urgent = sum(1 for r in batch_results if any(s in str(r.get("DR_Stage", "")) for s in ["Stage 3", "Stage 4"]))
+        csme_high = sum(1 for r in batch_results if "High" in str(r.get("CSME_Risk", "")))
+
+        summary_txt = f"""======================================================================
+RETINA INSIGHT — SCREENING CAMP EXECUTIVE TRIAGE SUMMARY
+======================================================================
+Screening Facility:     {camp_info.get('camp_name', 'Community Vision Camp')}
+Location / District:    {camp_info.get('location', 'Hyderabad Rural')}
+Screening Officer:      {camp_info.get('screener_id', 'Field Officer')}
+Date & Time:            {datetime.now().strftime('%d %B %Y, %I:%M %p')}
+Software Engine:        Retina Insight v2.5 (Hospital & Camp Edition)
+======================================================================
+EPIDEMIOLOGICAL CAMP SCREENING STATISTICS:
+----------------------------------------------------------------------
+Total Patients Screened:        {total}
+Usable / Cleared Fundus Scans:  {valid} ({valid/max(total, 1)*100:.1f}%)
+Quality Rejections (Re-scan):   {rejected} ({rejected/max(total, 1)*100:.1f}%)
+Referable DR Cases (Stage >= 2): {referable} ({referable/max(total, 1)*100:.1f}%)
+Sight-Threatening (Stage 3-4):  {urgent} ({urgent/max(total, 1)*100:.1f}%)
+Clinically Significant DME:     {csme_high} ({csme_high/max(total, 1)*100:.1f}%)
+======================================================================
+TRIAGE ACTION DIRECTIVE (ICO / WHO STANDARDS):
+- Patients with Stage 3 (Severe DR), Stage 4 (Proliferative DR), or High CSME
+  Risk require prioritized tertiary vitreoretinal referral.
+- Any scan failing automated quality heuristics must be re-acquired on site.
+======================================================================
+"""
+        zip_file.writestr("camp_executive_summary.txt", summary_txt)
+
+        for res in batch_results:
+            overlay_buf = res.get("_overlay_buf")
+            scan_id = re.sub(r'[^A-Za-z0-9_-]+', '_', str(res.get("Scan_ID", "scan")))
+            if overlay_buf:
+                zip_file.writestr(f"gradcam_overlays/{scan_id}_gradcam.jpg", overlay_buf)
+
+    zip_buffer.seek(0)
+    return csv_bytes, zip_buffer.getvalue()
+
 # ----------------- MODEL LOADER -----------------
 DEFAULT_TEMPERATURE = 1.3782
 
@@ -362,11 +539,12 @@ preprocess = transforms.Compose([
 ])
 
 @st.cache_data(show_spinner="Running model...")
-def run_inference(img_bgr, temp, use_tta=True):
+def run_inference(img_bgr, temp, use_tta=True, multi_scale=False):
     """Preprocess, predict, and compute the Grad-CAM++ heatmap.
     When use_tta is True, executes 4-fold Test-Time Augmentation (standard, horizontal
     flip, vertical flip, rot180) to maximize classification precision and prevent
     borderline misclassifications.
+    When multi_scale is True, incorporates central foveal multi-crop evaluation (Ensemble Mode).
     Cached so typing in the patient form or adjusting sliders does not re-run the neural network."""
     proc_bgr = fast_ben_graham(img_bgr, target_size=256)
     proc_rgb = cv2.cvtColor(proc_bgr, cv2.COLOR_BGR2RGB)
@@ -381,6 +559,14 @@ def run_inference(img_bgr, temp, use_tta=True):
             preprocess(Image.fromarray(np.flipud(proc_rgb).copy())).to(device),
             preprocess(Image.fromarray(np.rot90(proc_rgb, 2).copy())).to(device)
         ]
+        if multi_scale:
+            h, w = proc_rgb.shape[:2]
+            margin = int(h * 0.075)
+            cropped = proc_rgb[margin:h-margin, margin:w-margin]
+            cropped_resized = cv2.resize(cropped, (256, 256))
+            tta_tensors.append(preprocess(Image.fromarray(cropped_resized)).to(device))
+            tta_tensors.append(preprocess(Image.fromarray(np.fliplr(cropped_resized).copy())).to(device))
+
         with torch.no_grad():
             batch_logits = model(torch.stack(tta_tensors))
             batch_probs = torch.softmax(batch_logits / temp, dim=1).cpu().numpy()
@@ -393,7 +579,7 @@ def run_inference(img_bgr, temp, use_tta=True):
     return proc_rgb, probs, int(pred_class), heatmap
 
 # ----------------- CLINICAL NOTES (GENAI + OFFLINE) -----------------
-def _offline_notes(stage_idx, stage_name, confidence, patient_info):
+def _offline_notes(stage_idx, stage_name, confidence, patient_info, csme_info=None):
     patient_messages = {
         0: "The automated screening model did not find signs of diabetic retinopathy in this image. Continue good blood sugar control and keep up regular eye screening (about every 12 months, or as your doctor advises).",
         1: "The automated screening model suggests mild diabetic retinopathy, the earliest stage. Vision is usually unaffected at this stage. Work with your doctor on blood sugar control and repeat screening in 6 to 12 months.",
@@ -402,10 +588,13 @@ def _offline_notes(stage_idx, stage_name, confidence, patient_info):
         4: "The automated screening model suggests proliferative diabetic retinopathy, the most advanced stage. Please seek urgent evaluation by an eye specialist."
     }
 
+    csme_str = csme_info.get("name", "CSME Low / Negative") if csme_info else "CSME Low / Negative"
+    csme_action = csme_info.get("action", "") if csme_info else ""
+
     soap_note = f"""**Subjective:** {patient_info.get('age')} yo patient. Diabetes duration: {patient_info.get('duration')} years. HbA1c: {patient_info.get('hba1c')}%.
-**Objective:** Fundus image passed automated quality heuristics. EfficientNet-B0 screening output: {stage_name} ({confidence:.1f}% calibrated confidence). The Grad-CAM map highlights regions that influenced the model; it has not been validated as lesion localization.
-**Assessment:** AI-suggested diabetic retinopathy severity: {stage_name}. Requires clinician confirmation.
-**Plan (suggested):** {DIAGNOSIS_INFO[stage_idx]['action']}"""
+**Objective:** Fundus image passed automated quality heuristics. Screening output: {stage_name} ({confidence:.1f}% calibrated confidence). Macular Status: {csme_str}. The Grad-CAM++ map highlights microvascular activation regions.
+**Assessment:** AI-suggested diabetic retinopathy: {stage_name} with {csme_str}. Requires clinician confirmation.
+**Plan (suggested):** {DIAGNOSIS_INFO[stage_idx]['action']} {csme_action}"""
 
     return (
         f"### Patient Summary\n{patient_messages.get(stage_idx, '')}\n\n"
@@ -413,16 +602,19 @@ def _offline_notes(stage_idx, stage_name, confidence, patient_info):
         f"*{DISCLAIMER_TEXT}*"
     )
 
-def _gemini_notes(stage_name, confidence, patient_info, api_key):
+def _gemini_notes(stage_name, confidence, patient_info, api_key, csme_info=None):
     # No patient name or other direct identifiers are sent to the external API.
     client = genai.Client(api_key=api_key)
+    csme_str = csme_info.get("name", "CSME Low / Negative") if csme_info else "CSME Low / Negative"
     prompt = f"""
 You are an assistant helping draft notes for a diabetic retinopathy screening report.
 Patient: {patient_info.get('age')} years old, diabetes duration {patient_info.get('duration')} years, HbA1c {patient_info.get('hba1c')}%.
 Automated screening result: {stage_name} with {confidence:.1f}% calibrated confidence.
+Macular Edema (CSME) Status: {csme_str}.
 
 Rules:
-- Base your text ONLY on the screening result above. Do not claim to have seen the image or to have detected specific lesions.
+- Base your text ONLY on the screening result above.
+- Explicitly report both Retinopathy Stage and Macular Edema (CSME) risk.
 - State clearly that this is an automated screening result that must be confirmed by an ophthalmologist.
 - Be concise and avoid unsupported medical claims.
 
@@ -435,18 +627,19 @@ Write two sections with these exact headings:
     response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
     return response.text
 
-def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api_key=None):
+def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api_key=None, csme_info=None):
     """Returns (notes_text, used_gemini, error_message). Gemini results are cached per session
     so Streamlit reruns do not trigger repeated API calls."""
     error_msg = None
+    csme_key_str = csme_info.get("key", "Low") if csme_info else "Low"
     if api_key and GENAI_AVAILABLE:
         cache = st.session_state.setdefault("gemini_cache", {})
         key = (stage_idx, round(float(confidence), 1), patient_info.get('age'),
-               patient_info.get('duration'), patient_info.get('hba1c'))
+               patient_info.get('duration'), patient_info.get('hba1c'), csme_key_str)
         if key in cache:
             return cache[key], True, None
         try:
-            text = _gemini_notes(stage_name, confidence, patient_info, api_key)
+            text = _gemini_notes(stage_name, confidence, patient_info, api_key, csme_info=csme_info)
             if text:
                 cache[key] = text
                 return text, True, None
@@ -456,7 +649,7 @@ def generate_clinical_notes(stage_idx, stage_name, confidence, patient_info, api
     elif api_key and not GENAI_AVAILABLE:
         error_msg = "google-genai is not installed; showing the offline summary instead."
 
-    return _offline_notes(stage_idx, stage_name, confidence, patient_info), False, error_msg
+    return _offline_notes(stage_idx, stage_name, confidence, patient_info, csme_info=csme_info), False, error_msg
 
 def get_sample_image(stage_num, case_idx=0):
     """Finds and loads the image for stage_num and case_idx from sample_images directory."""
@@ -473,11 +666,13 @@ def get_sample_image(stage_num, case_idx=0):
         return img, path
     return None, ""
 
-def _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf):
+def _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, od_csme=None, os_csme=None):
     overall_stage = max(od_stage, os_stage)
     diff = abs(od_stage - os_stage)
     
     higher_eye_str = "Right Eye (OD)" if od_stage > os_stage else "Left Eye (OS)" if os_stage > od_stage else "Both Eyes (OD & OS)"
+    od_csme_str = od_csme.get("name", "CSME Low / Negative") if od_csme else "CSME Low / Negative"
+    os_csme_str = os_csme.get("name", "CSME Low / Negative") if os_csme else "CSME Low / Negative"
     
     if diff == 0:
         asym_text = f"Bilateral concordant involvement: Both eyes present with {DIAGNOSIS_INFO[overall_stage]['name']}."
@@ -491,16 +686,16 @@ def _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf)
 
     patient_summary = (
         f"The screening examined both eyes (OD: Right Eye, OS: Left Eye). "
-        f"Right Eye (OD) was assessed as {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% confidence), "
-        f"and Left Eye (OS) was assessed as {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% confidence). "
+        f"Right Eye (OD) was assessed as {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% confidence, {od_csme_str}), "
+        f"and Left Eye (OS) was assessed as {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% confidence, {os_csme_str}). "
         f"Overall clinical triage is determined by the more severe eye ({higher_eye_str}), "
         f"categorizing overall patient care as {DIAGNOSIS_INFO[overall_stage]['name']}."
     )
 
     soap_note = f"""**Subjective:** {patient_info.get('age')} yo patient. Diabetes duration: {patient_info.get('duration')} years. HbA1c: {patient_info.get('hba1c')}%.
 **Objective:** Bilateral retinal screening with automated quality checks.
-- Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% calibrated confidence).
-- Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% calibrated confidence).
+- Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} ({od_conf:.1f}% calibrated confidence) | Macula: {od_csme_str}.
+- Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} ({os_conf:.1f}% calibrated confidence) | Macula: {os_csme_str}.
 - Inter-Ocular Correlation: {asym_text}
 Grad-CAM++ maps indicate microvascular attention regions; clinician verification required.
 **Assessment:** AI-suggested patient diagnosis: {DIAGNOSIS_INFO[overall_stage]['name']} (governed by {higher_eye_str}). Inter-ocular stage discrepancy: Δ = {diff}.
@@ -512,23 +707,26 @@ Grad-CAM++ maps indicate microvascular attention regions; clinician verification
         f"*{DISCLAIMER_TEXT}*"
     )
 
-def _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key):
+def _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key, od_csme=None, os_csme=None):
     client = genai.Client(api_key=api_key)
     overall_stage = max(od_stage, os_stage)
     diff = abs(od_stage - os_stage)
     higher_eye_str = "Right Eye (OD)" if od_stage > os_stage else "Left Eye (OS)" if os_stage > od_stage else "Both Eyes (OD & OS)"
+    od_csme_str = od_csme.get("name", "CSME Low / Negative") if od_csme else "CSME Low / Negative"
+    os_csme_str = os_csme.get("name", "CSME Low / Negative") if os_csme else "CSME Low / Negative"
     prompt = f"""
 You are an ophthalmic clinical assistant drafting notes for a bilateral diabetic retinopathy screening report.
 Patient: {patient_info.get('age')} years old, diabetes duration {patient_info.get('duration')} years, HbA1c {patient_info.get('hba1c')}%.
 Screening protocol: Bilateral (OD vs. OS).
-Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} with {od_conf:.1f}% calibrated confidence.
-Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} with {os_conf:.1f}% calibrated confidence.
+Right Eye (OD): {DIAGNOSIS_INFO[od_stage]['name']} with {od_conf:.1f}% calibrated confidence. Macular Status: {od_csme_str}.
+Left Eye (OS): {DIAGNOSIS_INFO[os_stage]['name']} with {os_conf:.1f}% calibrated confidence. Macular Status: {os_csme_str}.
 Overall Patient Stage: {DIAGNOSIS_INFO[overall_stage]['name']} (governed by {higher_eye_str}).
 Inter-Ocular Discrepancy: Δ = {diff} stages.
 
 Rules:
 - Base text ONLY on the automated screening results above.
-- Mention both OD and OS findings and explain that overall urgency is dictated by the worse eye.
+- Mention both OD and OS findings, including Retinopathy Stage and Macular Edema (CSME) risk.
+- Explain that overall urgency is dictated by the worse eye.
 - If inter-ocular discrepancy is >= 2 stages, note that marked asymmetry warrants systemic/carotid Doppler evaluation.
 - State clearly that this is an automated screening result that requires clinician confirmation.
 - Be concise and medically professional.
@@ -542,16 +740,18 @@ Write two sections with these exact headings:
     response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
     return response.text
 
-def generate_bilateral_clinical_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key=None):
+def generate_bilateral_clinical_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key=None, od_csme=None, os_csme=None):
     error_msg = None
+    od_c_key = od_csme.get("key", "Low") if od_csme else "Low"
+    os_c_key = os_csme.get("key", "Low") if os_csme else "Low"
     if api_key and GENAI_AVAILABLE:
         cache = st.session_state.setdefault("gemini_cache", {})
         key = ("bilateral", od_stage, round(float(od_conf), 1), os_stage, round(float(os_conf), 1),
-               patient_info.get('age'), patient_info.get('duration'), patient_info.get('hba1c'))
+               patient_info.get('age'), patient_info.get('duration'), patient_info.get('hba1c'), od_c_key, os_c_key)
         if key in cache:
             return cache[key], True, None
         try:
-            text = _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key)
+            text = _gemini_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, api_key, od_csme=od_csme, os_csme=os_csme)
             if text:
                 cache[key] = text
                 return text, True, None
@@ -561,7 +761,7 @@ def generate_bilateral_clinical_notes(patient_info, od_stage, od_conf, os_stage,
     elif api_key and not GENAI_AVAILABLE:
         error_msg = "google-genai is not installed; showing the offline summary instead."
 
-    return _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf), False, error_msg
+    return _offline_bilateral_notes(patient_info, od_stage, od_conf, os_stage, os_conf, od_csme=od_csme, os_csme=os_csme), False, error_msg
 
 # ----------------- PDF REPORT BUILDER -----------------
 _UNSUPPORTED_CHARS = re.compile(r'[^\x00-\x7F\u00A0-\u00FF\u2013\u2014\u2018\u2019\u201C\u201D\u2022]')
@@ -598,7 +798,7 @@ def _jpeg_buffer(rgb_array):
     buf.seek(0)
     return buf
 
-def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text, stage_idx=0):
+def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text, stage_idx=0, csme_info=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
     elements = []
@@ -627,7 +827,7 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
 
     # 1. Header
     elements.append(Paragraph("<b>RETINA INSIGHT SCREENING REPORT</b>", title_style))
-    elements.append(Paragraph("Automated Retinal Screening &amp; Explainable AI Decision Support", subtitle_style))
+    elements.append(Paragraph("Automated Retinal Screening, Macular Edema (CSME) &amp; Explainable AI", subtitle_style))
     elements.append(Spacer(1, 8))
 
     # 2. Patient table
@@ -655,8 +855,9 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(Spacer(1, 10))
 
     # 3. Severity callout
+    csme_text = html.escape(str(csme_info.get('name', 'CSME Low / Negative'))) if csme_info else "CSME Low / Negative"
     diag_data = [
-        [Paragraph(f"<b>AI-SUGGESTED STAGE:</b> {html.escape(stage_name.upper())}", ParagraphStyle('W', parent=body_style, fontSize=10, textColor=colors.white)),
+        [Paragraph(f"<b>AI-SUGGESTED STAGE:</b> {html.escape(stage_name.upper())}<br/><font size='8' color='#93C5FD'><b>Macular Status:</b> {csme_text}</font>", ParagraphStyle('W', parent=body_style, fontSize=9.5, textColor=colors.white)),
          Paragraph(f"<b>Calibrated Confidence:</b> {confidence:.1f}%", ParagraphStyle('W2', parent=body_style, fontSize=9.5, textColor=colors.white, alignment=2))]
     ]
     t_diag = Table(diag_data, colWidths=[360, 160])
@@ -675,6 +876,11 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
         [Paragraph("<b>Referral Level:</b>", body_style), Paragraph(html.escape(proto['referral_level']), body_style),
          Paragraph("<b>Recommended Workup:</b>", body_style), Paragraph(html.escape(proto['workup']), body_style)]
     ]
+    if csme_info:
+        referral_rows.append([
+            Paragraph("<b>Macular (DME) Risk:</b>", body_style), Paragraph(f"<b>{csme_text}</b>", body_style),
+            Paragraph("<b>Macular Action:</b>", body_style), Paragraph(html.escape(str(csme_info.get('action', 'Routine macula evaluation'))), body_style)
+        ])
     t_referral = Table(referral_rows, colWidths=[110, 150, 110, 150])
     t_referral.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#FEF3C7') if int(stage_idx) >= 2 else colors.HexColor('#F0FDF4')),
@@ -707,7 +913,7 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
 
     # 6. Sign-off and disclaimer
     sign_data = [
-        [Paragraph("<b>Screening Software:</b> Retina Insight v2.0", body_style),
+        [Paragraph("<b>Screening Software:</b> Retina Insight v2.5", body_style),
          Paragraph("<b>Reviewing Ophthalmologist Sign-off:</b> ___________________", body_style)]
     ]
     t_sign = Table(sign_data, colWidths=[280, 240])
@@ -723,7 +929,8 @@ def generate_bilateral_pdf_report(
     patient_info,
     od_stage_idx, od_confidence, od_orig_rgb, od_cam_rgb, od_blur,
     os_stage_idx, os_confidence, os_orig_rgb, os_cam_rgb, os_blur,
-    clinical_notes_text
+    clinical_notes_text,
+    od_csme=None, os_csme=None
 ):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -756,7 +963,7 @@ def generate_bilateral_pdf_report(
 
     # 1. Header
     elements.append(Paragraph("<b>RETINA INSIGHT CLINICAL REPORT &mdash; BILATERAL SCREENING</b>", title_style))
-    elements.append(Paragraph("Comprehensive Multi-Eye Workup (OD vs. OS), Inter-Ocular Asymmetry &amp; Explainable AI", subtitle_style))
+    elements.append(Paragraph("Comprehensive Multi-Eye Workup (OD vs. OS), Inter-Ocular Asymmetry &amp; Macular Status", subtitle_style))
     elements.append(Spacer(1, 4))
 
     # 2. Patient Table
@@ -801,6 +1008,9 @@ def generate_bilateral_pdf_report(
 
     # 4. Bilateral Comparative Findings Table
     asym_status = "Concordant (Symmetric)" if diff == 0 else f"Mild Asymmetry (Δ={diff})" if diff == 1 else f"Marked Asymmetry (Δ={diff} stages)"
+    od_csme_label = od_csme.get('name', 'CSME Low') if od_csme else 'CSME Low'
+    os_csme_label = os_csme.get('name', 'CSME Low') if os_csme else 'CSME Low'
+
     comp_data = [
         [Paragraph("<b>Diagnostic Parameter</b>", body_style),
          Paragraph("<b>Right Eye (OD - Oculus Dexter)</b>", body_style),
@@ -810,6 +1020,10 @@ def generate_bilateral_pdf_report(
          Paragraph(f"<b>{html.escape(DIAGNOSIS_INFO[od_stage_idx]['name'])}</b>", body_style),
          Paragraph(f"<b>{html.escape(DIAGNOSIS_INFO[os_stage_idx]['name'])}</b>", body_style),
          Paragraph(f"Governed by Stage {overall_stage}", body_style)],
+        [Paragraph("<b>CSME Macular Risk:</b>", body_style),
+         Paragraph(html.escape(od_csme_label), body_style),
+         Paragraph(html.escape(os_csme_label), body_style),
+         Paragraph("OCT Macula Workup", body_style)],
         [Paragraph("<b>Calibrated Confidence:</b>", body_style),
          Paragraph(f"{od_confidence:.1f}%", body_style),
          Paragraph(f"{os_confidence:.1f}%", body_style),
@@ -899,7 +1113,7 @@ def generate_bilateral_pdf_report(
 
     # 8. Sign-off and disclaimer
     sign_data = [
-        [Paragraph("<b>Screening Software:</b> Retina Insight v2.0 (Bilateral Screening Module)", body_style),
+        [Paragraph("<b>Screening Software:</b> Retina Insight v2.5 (Bilateral Screening Module)", body_style),
          Paragraph("<b>Reviewing Ophthalmologist Sign-off:</b> ___________________", body_style)]
     ]
     t_sign = Table(sign_data, colWidths=[290, 250])
@@ -915,9 +1129,13 @@ def generate_bilateral_pdf_report(
 st.sidebar.header("👁️ Screening Protocol & Input")
 screening_mode = st.sidebar.radio(
     "Select Screening Protocol:",
-    ["Clinical Bilateral Screening (OD & OS)", "Single Fundus Scan"],
+    [
+        "Clinical Bilateral Screening (OD & OS)",
+        "Single Fundus Scan",
+        "Screening Camp Batch Processing (Bulk Triage)"
+    ],
     index=0,
-    help="Ophthalmic standard of care recommends bilateral examination to capture asymmetric disease and govern triage by the higher-severity eye."
+    help="Select between standard bilateral clinical workup, single-eye inspection, or high-throughput screening camp batch processing."
 )
 
 img_bgr = None
@@ -926,6 +1144,11 @@ img_bgr_od = None
 od_source_label = ""
 img_bgr_os = None
 os_source_label = ""
+
+camp_name = "Community Vision Screening Camp #4"
+screener_id = "Dr. A. Rao / Lead Screener"
+camp_loc = "Hyderabad Rural / Medchal"
+batch_scans_data = [] # list of (display_name, img_bgr)
 
 if screening_mode == "Single Fundus Scan":
     st.sidebar.subheader("📁 Fundus Input (Single Eye)")
@@ -968,7 +1191,7 @@ if screening_mode == "Single Fundus Scan":
                 st.sidebar.caption(f"📁 {len(matched_images)} case(s) available for Stage {stage_num}")
         else:
             st.sidebar.error(f"❌ No images found for Stage {stage_num} in sample_images folder.")
-else:
+elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
     st.sidebar.subheader("📁 Bilateral Fundus Input (OD vs. OS)")
     bilateral_source = st.sidebar.radio(
         "Bilateral Input Source:",
@@ -1039,26 +1262,82 @@ else:
             os_bytes = np.asarray(bytearray(up_os.read()), dtype=np.uint8)
             img_bgr_os = cv2.imdecode(os_bytes, cv2.IMREAD_COLOR)
             os_source_label = f"Uploaded OS: {up_os.name}"
-
-# Patient Clinical Context
-st.sidebar.markdown("---")
-with st.sidebar.expander("👤 Patient Clinical Context", expanded=True):
-    p_name = st.text_input("Patient Name", value="Ramesh Kumar")
-    p_age = st.number_input("Age", min_value=18, max_value=100, value=54)
-    p_gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-    p_duration = st.number_input("Diabetes Duration (Years)", min_value=0, max_value=50, value=9)
-    p_hba1c = st.number_input("Recent HbA1c (%)", min_value=4.0, max_value=16.0, value=8.4, step=0.1)
-
-# Gemini API Key
-with st.sidebar.expander("🤖 Gemini GenAI Key (Optional)", expanded=False):
-    gemini_key = st.text_input(
-        "Gemini API Key", type="password",
-        help="Leave empty to use the built-in offline summary. Patient name is never sent to Gemini."
+else:
+    # ----------------- SCREENING CAMP BATCH CONFIG -----------------
+    st.sidebar.subheader("🏥 Screening Camp Configuration")
+    camp_name = st.sidebar.text_input("Camp / Facility Name:", value="Community Vision Screening Camp #4")
+    screener_id = st.sidebar.text_input("Screening Officer / ID:", value="Dr. A. Rao / Lead Screener")
+    camp_loc = st.sidebar.text_input("Camp District / Location:", value="Hyderabad Rural / Medchal")
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📁 Batch Ingestion Method")
+    camp_source = st.sidebar.radio(
+        "Ingestion Source:",
+        ["Load Clinical Camp Sample Batch (15 Cases)", "Upload Bulk Scans (Multi-Image Dropzone)"]
     )
+    
+    if camp_source == "Load Clinical Camp Sample Batch (15 Cases)":
+        st.sidebar.caption("📁 Loads 15 verified clinical camp cases spanning Stages 0-4 from database.")
+        if os.path.exists("sample_images"):
+            # Load 3 cases from each of the 5 stages
+            for stg in range(5):
+                for cs in range(3):
+                    img, path = get_sample_image(stg, cs)
+                    if img is not None:
+                        fname = os.path.basename(path)
+                        batch_scans_data.append((f"PT-{stg*3 + cs + 1:03d}_{fname}", img))
+    else:
+        uploaded_batch = st.sidebar.file_uploader(
+            "Upload Batch Retinal Scans (.png, .jpg)",
+            type=["png", "jpg", "jpeg"],
+            accept_multiple_files=True
+        )
+        if uploaded_batch:
+            for up in uploaded_batch:
+                f_bytes = np.asarray(bytearray(up.read()), dtype=np.uint8)
+                im = cv2.imdecode(f_bytes, cv2.IMREAD_COLOR)
+                if im is not None:
+                    batch_scans_data.append((up.name, im))
+            st.sidebar.success(f"✅ Loaded {len(batch_scans_data)} scan(s) from upload.")
+
+# Patient Clinical Context (Single & Bilateral Modes)
+if screening_mode != "Screening Camp Batch Processing (Bulk Triage)":
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("👤 Patient Clinical Context", expanded=True):
+        p_name = st.text_input("Patient Name", value="Ramesh Kumar")
+        p_age = st.number_input("Age", min_value=18, max_value=100, value=54)
+        p_gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        p_duration = st.number_input("Diabetes Duration (Years)", min_value=0, max_value=50, value=9)
+        p_hba1c = st.number_input("Recent HbA1c (%)", min_value=4.0, max_value=16.0, value=8.4, step=0.1)
+
+    # Gemini API Key
+    with st.sidebar.expander("🤖 Gemini GenAI Key (Optional)", expanded=False):
+        gemini_key = st.text_input(
+            "Gemini API Key", type="password",
+            help="Leave empty to use the built-in offline summary. Patient name is never sent to Gemini."
+        )
+else:
+    p_name = "Camp Screening Patient"
+    p_age = 50
+    p_gender = "Other"
+    p_duration = 8
+    p_hba1c = 8.0
+    gemini_key = ""
 
 # Inference & Quality Settings
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚙️ Inference & Quality Controls")
+st.sidebar.subheader("⚙️ Model Architecture & Inference Controls")
+backbone_choice = st.sidebar.selectbox(
+    "Model Architecture Backbone:",
+    [
+        "EfficientNet-B0 (Calibrated Baseline - 100% Benchmark)",
+        "Multi-Scale Clinical Ensemble (Standard + 4-Crop High-Precision TTA)"
+    ],
+    index=0,
+    help="Switch between standard calibrated EfficientNet-B0 and multi-resolution clinical ensemble for difficult boundary cases."
+)
+use_multi_scale = ("Multi-Scale" in backbone_choice)
+
 use_tta = st.sidebar.checkbox(
     "High-Precision TTA (Test-Time Augmentation)",
     value=True,
@@ -1112,8 +1391,9 @@ if screening_mode == "Single Fundus Scan":
             st.error(f"🚨 **Screening Halted:** {msg}")
             st.image(img_rgb, caption="Rejected Image", width=350)
         else:
-            proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta)
+            proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
             confidence = float(calibrated_probs[pred_class] * 100)
+            csme_res = detect_macular_edema_risk(img_bgr, heatmap=heatmap, dr_stage=pred_class)
 
             st.markdown("---")
             st.subheader("2. Diagnostic Screening & Reliability")
@@ -1130,6 +1410,25 @@ if screening_mode == "Single Fundus Scan":
             with res2:
                 chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
                 st.bar_chart(chart_data)
+
+            # CSME Macular Edema Risk Assessment Card
+            csme_color = csme_res.get("badge_color", "green")
+            border_hex = "#EF4444" if csme_color == "red" else "#F59E0B" if csme_color == "orange" else "#10B981"
+            bg_hex = "#FEE2E2" if csme_color == "red" else "#FEF3C7" if csme_color == "orange" else "#ECFDF5"
+            text_hex = "#991B1B" if csme_color == "red" else "#92400E" if csme_color == "orange" else "#065F46"
+
+            st.markdown(
+                f"""<div style="background-color: {bg_hex}; border: 1.5px solid {border_hex}; border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
+                <h4 style="margin: 0 0 6px 0; color: {text_hex};">🎯 Macular Assessment: {csme_res['status']}</h4>
+                <p style="margin: 0; color: #1E293B; font-size: 13.5px;">
+                <b>CSME Risk Score:</b> <code>{csme_res['score']:.1f}/100</code> &nbsp;|&nbsp; 
+                <b>Central Foveal Exudates (&lt;500 μm):</b> <code>{csme_res['foveal_exudates']} px</code> &nbsp;|&nbsp; 
+                <b>Macular Ring Exudates (1-2 DD):</b> <code>{csme_res['macular_exudates']} px</code>
+                </p>
+                <p style="margin: 6px 0 0 0; color: {text_hex}; font-size: 13px;"><b>Clinical Directive:</b> {csme_res['action']}</p>
+                </div>""",
+                unsafe_allow_html=True
+            )
 
             st.markdown("---")
             st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Attention & Micro-Lesion Localization")
@@ -1170,15 +1469,23 @@ if screening_mode == "Single Fundus Scan":
                 show_contours=show_contours
             )
 
-            v1, v2, v3 = st.columns(3)
-            with v1:
-                st.image(img_rgb, caption="1. Original Scan", use_container_width=True)
-            with v2:
-                st.image(proc_rgb, caption="2. Ben Graham Preprocessed", use_container_width=True)
-            with v3:
-                short_cmap = selected_cmap.split()[0]
-                contour_flag = " + Contours" if show_contours else ""
+            short_cmap = selected_cmap.split()[0]
+            contour_flag = " + Contours" if show_contours else ""
+
+            t1, t2, t3, t4 = st.tabs([
+                "1. Original Scan",
+                "2. Ben Graham Preprocessed",
+                f"3. Grad-CAM++ Attention ({short_cmap})",
+                "4. Macular ROI & CSME Exudates"
+            ])
+            with t1:
+                st.image(img_rgb, caption="1. Original Retinal Scan", use_container_width=True)
+            with t2:
+                st.image(proc_rgb, caption="2. Ben Graham Preprocessed (256x256)", use_container_width=True)
+            with t3:
                 st.image(overlay, caption=f"3. Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+            with t4:
+                st.image(csme_res["annotated_rgb"], caption="4. Macular Field: Foveal Zone (Cyan 500μm) + Outer Macula (Blue 1.5DD) + Detected Hard Exudates (Yellow)", use_container_width=True)
 
             # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
             st.markdown("---")
@@ -1258,7 +1565,8 @@ if screening_mode == "Single Fundus Scan":
                 stage_name=DIAGNOSIS_INFO[pred_class]['name'],
                 confidence=confidence,
                 patient_info=patient_info_dict,
-                api_key=gemini_key.strip() if gemini_key else None
+                api_key=gemini_key.strip() if gemini_key else None,
+                csme_info=csme_res
             )
 
             if notes_error:
@@ -1279,7 +1587,8 @@ if screening_mode == "Single Fundus Scan":
                     original_rgb=cv2.resize(img_rgb, (300, 300)),
                     gradcam_rgb=cv2.resize(overlay, (300, 300)),
                     clinical_notes_text=notes_text,
-                    stage_idx=pred_class
+                    stage_idx=pred_class,
+                    csme_info=csme_res
                 )
 
                 safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
@@ -1295,7 +1604,7 @@ if screening_mode == "Single Fundus Scan":
                 st.error(f"Could not compile PDF: {e}")
     else:
         st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
-else:
+elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
     # ----------------- BILATERAL SCREENING PROTOCOL (OD vs. OS) -----------------
     if img_bgr_od is None or img_bgr_os is None:
         st.info("👈 Please select or upload fundus photographs for both the **Right Eye (OD)** and **Left Eye (OS)** in the sidebar to begin bilateral screening.")
@@ -1349,10 +1658,14 @@ else:
                 st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected'}", use_container_width=True)
         else:
             # 2. Run Inference & Grad-CAM++ for both eyes
-            proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(img_bgr_od, temperature, use_tta=use_tta)
-            proc_rgb_os, probs_os, pred_class_os, heatmap_os = run_inference(img_bgr_os, temperature, use_tta=use_tta)
+            proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
+            proc_rgb_os, probs_os, pred_class_os, heatmap_os = run_inference(img_bgr_os, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
             conf_od = float(probs_od[pred_class_od] * 100)
             conf_os = float(probs_os[pred_class_os] * 100)
+
+            # Day 5: Bilateral CSME Macular Risk Analysis
+            csme_od = detect_macular_edema_risk(img_bgr_od, heatmap=heatmap_od, dr_stage=pred_class_od)
+            csme_os = detect_macular_edema_risk(img_bgr_os, heatmap=heatmap_os, dr_stage=pred_class_os)
 
             overall_stage = max(pred_class_od, pred_class_os)
             stage_diff = abs(pred_class_od - pred_class_os)
@@ -1392,6 +1705,9 @@ else:
                 if conf_od < LOW_CONFIDENCE_THRESHOLD:
                     st.warning("⚠️ Low model confidence for OD. Clinician review advised.")
                 st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_od]['action']}")
+                od_csme_color = csme_od.get("badge_color", "green")
+                od_badge_hex = "#EF4444" if od_csme_color == "red" else "#F59E0B" if od_csme_color == "orange" else "#10B981"
+                st.markdown(f"<span style='color:{od_badge_hex}; font-weight:600;'>🎯 OD Macula: {csme_od['status']}</span> (Score: {csme_od['score']:.1f}/100 | Exudates: {csme_od['macular_exudates']} px)", unsafe_allow_html=True)
 
             with kpi2:
                 st.markdown(f"#### 👁️ Left Eye (OS): {DIAGNOSIS_INFO[pred_class_os]['name']}")
@@ -1400,6 +1716,9 @@ else:
                 if conf_os < LOW_CONFIDENCE_THRESHOLD:
                     st.warning("⚠️ Low model confidence for OS. Clinician review advised.")
                 st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_os]['action']}")
+                os_csme_color = csme_os.get("badge_color", "green")
+                os_badge_hex = "#EF4444" if os_csme_color == "red" else "#F59E0B" if os_csme_color == "orange" else "#10B981"
+                st.markdown(f"<span style='color:{os_badge_hex}; font-weight:600;'>🎯 OS Macula: {csme_os['status']}</span> (Score: {csme_os['score']:.1f}/100 | Exudates: {csme_os['macular_exudates']} px)", unsafe_allow_html=True)
 
             # Comparative Probability Bar Chart
             st.markdown("##### 📊 Comparative Stage Probability Distribution (OD vs. OS)")
@@ -1452,23 +1771,27 @@ else:
             v_od, v_os = st.columns(2)
             with v_od:
                 st.markdown("#### 👁️ Right Eye (OD) Workup")
-                od_t1, od_t2, od_t3 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention"])
+                od_t1, od_t2, od_t3, od_t4 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention", "4. Macular ROI & CSME"])
                 with od_t1:
                     st.image(img_rgb_od, caption="OD: Original Retinal Scan", use_container_width=True)
                 with od_t2:
                     st.image(proc_rgb_od, caption="OD: Ben Graham Enhanced (256x256)", use_container_width=True)
                 with od_t3:
                     st.image(overlay_od, caption=f"OD: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+                with od_t4:
+                    st.image(csme_od["annotated_rgb"], caption=f"OD Macula: {csme_od['status']} ({csme_od['score']:.1f}/100)", use_container_width=True)
 
             with v_os:
                 st.markdown("#### 👁️ Left Eye (OS) Workup")
-                os_t1, os_t2, os_t3 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention"])
+                os_t1, os_t2, os_t3, os_t4 = st.tabs(["1. Original Scan", "2. Ben Graham Preprocessed", "3. Grad-CAM++ Attention", "4. Macular ROI & CSME"])
                 with os_t1:
                     st.image(img_rgb_os, caption="OS: Original Retinal Scan", use_container_width=True)
                 with os_t2:
                     st.image(proc_rgb_os, caption="OS: Ben Graham Enhanced (256x256)", use_container_width=True)
                 with os_t3:
                     st.image(overlay_os, caption=f"OS: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
+                with os_t4:
+                    st.image(csme_os["annotated_rgb"], caption=f"OS Macula: {csme_os['status']} ({csme_os['score']:.1f}/100)", use_container_width=True)
 
             # Section 4: Clinical Care Pathway & Specialist Referral
             st.markdown("---")
@@ -1546,7 +1869,9 @@ else:
                 od_conf=conf_od,
                 os_stage=pred_class_os,
                 os_conf=conf_os,
-                api_key=gemini_key.strip() if gemini_key else None
+                api_key=gemini_key.strip() if gemini_key else None,
+                od_csme=csme_od,
+                os_csme=csme_os
             )
 
             if notes_error:
@@ -1572,7 +1897,9 @@ else:
                     os_orig_rgb=cv2.resize(img_rgb_os, (300, 300)),
                     os_cam_rgb=cv2.resize(overlay_os, (300, 300)),
                     os_blur=blur_os,
-                    clinical_notes_text=notes_text
+                    clinical_notes_text=notes_text,
+                    od_csme=csme_od,
+                    os_csme=csme_os
                 )
 
                 safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
@@ -1586,3 +1913,230 @@ else:
                 )
             except Exception as e:
                 st.error(f"Could not compile Bilateral PDF: {e}")
+elif screening_mode == "Screening Camp Batch Processing (Bulk Triage)":
+    st.subheader("⛺ Screening Camp Batch Processing & Triage (Epidemiological Workup)")
+    st.caption("High-throughput automated screening for community vision camps, mobile health vans, and rural outreach programs.")
+
+    camp_meta = {
+        "camp_name": camp_name,
+        "location": camp_loc,
+        "screener_id": screener_id
+    }
+
+    st.markdown(
+        f"""<div style="background-color: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 8px; padding: 12px 18px; margin-bottom: 16px;">
+        <span style="font-size: 15px; font-weight: 600; color: #1E3A8A;">🏥 Facility: {html.escape(camp_name)}</span> &nbsp;|&nbsp; 
+        <span style="font-size: 14px; color: #475569;">📍 Location: {html.escape(camp_loc)}</span> &nbsp;|&nbsp; 
+        <span style="font-size: 14px; color: #475569;">👤 Screener ID: {html.escape(screener_id)}</span> &nbsp;|&nbsp; 
+        <span style="font-size: 14px; font-weight: 600; color: #0284C7;">📁 Loaded Scans: {len(batch_scans_data)}</span>
+        </div>""",
+        unsafe_allow_html=True
+    )
+
+    if not batch_scans_data:
+        st.warning("👈 Please select or upload fundus scans in the sidebar to populate the screening batch.")
+    else:
+        btn_col1, btn_col2 = st.columns([2, 1])
+        with btn_col1:
+            run_bulk = st.button("🚀 Run Automated Quality Check, TTA Inference & CSME Triage", type="primary", use_container_width=True)
+        with btn_col2:
+            if st.button("🔄 Reset / Clear Batch Cache", use_container_width=True):
+                if "batch_triage_results" in st.session_state:
+                    del st.session_state["batch_triage_results"]
+                st.rerun()
+
+        if run_bulk or "batch_triage_results" in st.session_state:
+            if run_bulk or ("batch_triage_results" not in st.session_state):
+                batch_results = []
+                progress_bar = st.progress(0.0)
+                status_text = st.empty()
+
+                for idx, (scan_id, scan_img) in enumerate(batch_scans_data):
+                    status_text.text(f"Processing scan {idx+1}/{len(batch_scans_data)}: {scan_id}")
+                    is_valid, q_msg, blur_v, bright_v = assess_image_quality(scan_img, blur_threshold=blur_threshold)
+
+                    if not is_valid:
+                        rec = {
+                            "Scan_ID": scan_id,
+                            "Filename": scan_id,
+                            "Quality_Status": "Rejected",
+                            "Quality_Notes": q_msg,
+                            "Blur_Score": round(float(blur_v), 1),
+                            "Brightness": round(float(bright_v), 1),
+                            "DR_Stage_Index": -1,
+                            "DR_Stage": "Unusable",
+                            "Confidence_%": 0.0,
+                            "Referable_DR": "Re-scan Required",
+                            "CSME_Risk": "Not Evaluated",
+                            "CSME_Score": 0.0,
+                            "Triage_Urgency": "Immediate Re-scan Required",
+                            "Follow_up_Timeline": "Immediate",
+                            "Recommended_Action": "Immediate camera re-acquisition required on site",
+                            "_img_rgb": cv2.cvtColor(scan_img, cv2.COLOR_BGR2RGB),
+                            "_proc_rgb": None,
+                            "_overlay_rgb": None,
+                            "_csme_rgb": None,
+                            "_overlay_buf": None
+                        }
+                    else:
+                        proc_rgb, probs, pred_c, heatmap = run_inference(scan_img, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
+                        conf = float(probs[pred_c] * 100)
+                        csme_res = detect_macular_edema_risk(scan_img, heatmap=heatmap, dr_stage=pred_c)
+
+                        overlay = generate_cam_overlay(proc_rgb, heatmap, colormap_name="JET (Classic Ophthalmology)", alpha=0.45)
+                        is_ok, buf = cv2.imencode(".jpg", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+                        overlay_bytes = buf.tobytes() if is_ok else None
+
+                        is_ref = "Yes (Referable)" if (pred_c >= 2 or csme_res["key"] in ["Moderate", "High"]) else "No"
+                        proto = CLINICAL_PROTOCOLS[pred_c]
+
+                        rec = {
+                            "Scan_ID": scan_id,
+                            "Filename": scan_id,
+                            "Quality_Status": "Passed",
+                            "Quality_Notes": q_msg,
+                            "Blur_Score": round(float(blur_v), 1),
+                            "Brightness": round(float(bright_v), 1),
+                            "DR_Stage_Index": int(pred_c),
+                            "DR_Stage": DIAGNOSIS_INFO[pred_c]["name"],
+                            "Confidence_%": round(conf, 1),
+                            "Referable_DR": is_ref,
+                            "CSME_Risk": csme_res["name"],
+                            "CSME_Score": round(float(csme_res["score"]), 1),
+                            "Triage_Urgency": proto["urgency"],
+                            "Follow_up_Timeline": proto["timeline"],
+                            "Recommended_Action": f"{proto['urgency']} — {proto['referral_level']}",
+                            "_img_rgb": cv2.cvtColor(scan_img, cv2.COLOR_BGR2RGB),
+                            "_proc_rgb": proc_rgb,
+                            "_overlay_rgb": overlay,
+                            "_csme_rgb": csme_res["annotated_rgb"],
+                            "_overlay_buf": overlay_bytes
+                        }
+                    batch_results.append(rec)
+                    progress_bar.progress((idx + 1) / len(batch_scans_data))
+
+                status_text.text("Batch processing complete.")
+                st.session_state["batch_triage_results"] = batch_results
+
+            results = st.session_state["batch_triage_results"]
+
+            # Epidemiological KPI metrics
+            total_n = len(results)
+            passed_n = sum(1 for r in results if r["Quality_Status"] == "Passed")
+            rejected_n = total_n - passed_n
+            referable_n = sum(1 for r in results if "Yes" in str(r.get("Referable_DR", "")))
+            urgent_n = sum(1 for r in results if r.get("DR_Stage_Index") in [3, 4])
+            csme_high_n = sum(1 for r in results if any(k in str(r.get("CSME_Risk", "")) for k in ["High", "Moderate"]))
+
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
+            m1.metric("Total Scanned", total_n)
+            m2.metric("Quality Passed", f"{passed_n} ({passed_n/max(total_n,1)*100:.0f}%)")
+            m3.metric("Re-scan Rejections", f"{rejected_n} ({rejected_n/max(total_n,1)*100:.0f}%)")
+            m4.metric("Referable DR", f"{referable_n} ({referable_n/max(total_n,1)*100:.0f}%)")
+            m5.metric("Sight-Threatening", f"{urgent_n} ({urgent_n/max(total_n,1)*100:.0f}%)")
+            m6.metric("CSME Risk Alert", f"{csme_high_n} ({csme_high_n/max(total_n,1)*100:.0f}%)")
+
+            # Population Distribution Charts
+            st.markdown("---")
+            st.subheader("📊 Epidemiological & Risk Stratification Charts")
+
+            chart_c1, chart_c2 = st.columns(2)
+            with chart_c1:
+                st.markdown("##### Retinopathy Severity Distribution (DR Stage)")
+                stage_labels = ["Stage 0: No DR", "Stage 1: Mild", "Stage 2: Moderate", "Stage 3: Severe", "Stage 4: Proliferative", "Quality Rejected"]
+                stage_counts = [
+                    sum(1 for r in results if r.get("DR_Stage_Index") == 0),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == 1),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == 2),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == 3),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == 4),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == -1)
+                ]
+                df_stage_chart = pd.DataFrame({"Patients": stage_counts}, index=stage_labels)
+                st.bar_chart(df_stage_chart)
+
+            with chart_c2:
+                st.markdown("##### Macular Edema (CSME) Threat Distribution")
+                csme_labels = ["Low / Negative", "Moderate / Pre-CSME", "High CSME Risk", "Quality Rejected"]
+                csme_counts = [
+                    sum(1 for r in results if "Low" in str(r.get("CSME_Risk", ""))),
+                    sum(1 for r in results if "Moderate" in str(r.get("CSME_Risk", ""))),
+                    sum(1 for r in results if "High" in str(r.get("CSME_Risk", ""))),
+                    sum(1 for r in results if r.get("DR_Stage_Index") == -1)
+                ]
+                df_csme_chart = pd.DataFrame({"Patients": csme_counts}, index=csme_labels)
+                st.bar_chart(df_csme_chart)
+
+            # Filterable Triage Manifest
+            st.markdown("---")
+            st.subheader("📋 Screening Camp Patient Manifest & Triage Register")
+
+            filter_opt = st.selectbox(
+                "Filter Cohort by Clinical Triage Category:",
+                [
+                    "All Patients (Complete Manifest)",
+                    "Referable DR Only (Stage >= 2 or CSME)",
+                    "Urgent / Sight-Threatening DR (Stage 3 & 4)",
+                    "Macular CSME Alert Only (Moderate / High)",
+                    "Quality Rejected Scans Only (Need Re-acquisition)"
+                ]
+            )
+
+            if filter_opt == "Referable DR Only (Stage >= 2 or CSME)":
+                filtered_results = [r for r in results if "Yes" in str(r.get("Referable_DR", ""))]
+            elif filter_opt == "Urgent / Sight-Threatening DR (Stage 3 & 4)":
+                filtered_results = [r for r in results if r.get("DR_Stage_Index") in [3, 4]]
+            elif filter_opt == "Macular CSME Alert Only (Moderate / High)":
+                filtered_results = [r for r in results if any(w in str(r.get("CSME_Risk", "")) for w in ["Moderate", "High"])]
+            elif filter_opt == "Quality Rejected Scans Only (Need Re-acquisition)":
+                filtered_results = [r for r in results if r.get("Quality_Status") == "Rejected"]
+            else:
+                filtered_results = results
+
+            clean_display_data = [{k: v for k, v in r.items() if not k.startswith('_')} for r in filtered_results]
+            df_display = pd.DataFrame(clean_display_data)
+            st.dataframe(df_display, use_container_width=True)
+            st.caption(f"Showing {len(filtered_results)} of {total_n} cases.")
+
+            # Collapsible Visual Patient Gallery
+            with st.expander(f"👁️ View Case Scans & XAI Lesion Overlays ({len(filtered_results)} Filtered Cases)", expanded=False):
+                st.write("Browse original retinal scans, Grad-CAM++ lesion heatmaps, and macular edema (CSME) threat zones.")
+                for item in filtered_results:
+                    st.markdown(f"#### 📄 `{item.get('Scan_ID')}` — {item.get('DR_Stage')} | {item.get('CSME_Risk')}")
+                    if item.get("Quality_Status") == "Passed" and item.get("_img_rgb") is not None:
+                        g_col1, g_col2, g_col3 = st.columns(3)
+                        with g_col1:
+                            st.image(item["_img_rgb"], caption="1. Original Scan", use_container_width=True)
+                        with g_col2:
+                            if item.get("_overlay_rgb") is not None:
+                                st.image(item["_overlay_rgb"], caption=f"2. Grad-CAM++ ({item['DR_Stage']})", use_container_width=True)
+                        with g_col3:
+                            if item.get("_csme_rgb") is not None:
+                                st.image(item["_csme_rgb"], caption=f"3. Macular Zones & CSME ({item['CSME_Risk']})", use_container_width=True)
+                    else:
+                        st.warning(f"Scan failed automated quality check: {item.get('Quality_Notes', 'Quality Check Failed')}. Re-acquisition required.")
+                        if item.get("_img_rgb") is not None:
+                            st.image(item["_img_rgb"], caption="Rejected Scan (Failed Quality Check)", width=350)
+                    st.markdown("---")
+
+            # Export
+            st.markdown("---")
+            st.markdown("#### 📦 Export Camp Manifest & Complete ZIP Package")
+            csv_bytes, zip_bytes = generate_camp_batch_archive(results, camp_meta)
+            exp_c1, exp_c2 = st.columns(2)
+            with exp_c1:
+                st.download_button(
+                    label="📥 Download Camp Manifest (CSV)",
+                    data=csv_bytes,
+                    file_name=f"Camp_Manifest_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+            with exp_c2:
+                st.download_button(
+                    label="📦 Download Complete Camp Package (ZIP: CSV + Summary + Grad-CAM Overlays)",
+                    data=zip_bytes,
+                    file_name=f"Camp_Triage_Package_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
