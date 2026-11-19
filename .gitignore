@@ -9,3 +9,4 @@ kaggle.json
 temp_*.jpg
 test_images/
 eval_*/
+.pytest_cache/

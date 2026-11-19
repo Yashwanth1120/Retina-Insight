@@ -83,33 +83,52 @@ Evaluated on the official IDRiD test split (103 images, from a different camera 
 
 ## Run locally
 
+### 1. Interactive Clinical Decision Support Web Station (Streamlit)
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
-
 Optional: paste a Gemini API key in the sidebar for AI-drafted notes. Without a key, the app uses the built-in offline summary.
 
-On Streamlit Community Cloud, `requirements.txt` and `packages.txt` are used automatically.
+### 2. Headless Hospital Integration API (FastAPI Microservice)
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+```
+Interactive OpenAPI / Swagger documentation is available at:
+`http://localhost:8000/docs` or `http://localhost:8000/redoc`
+
+- **`POST /api/v1/screen`**: Automated single-eye fundus grading with TTA, CSME risk detection, and base64 Grad-CAM++ overlays.
+- **`POST /api/v1/screen-bilateral`**: Simultaneous dual-eye (OD vs OS) screening with inter-ocular asymmetry detection.
+- **`POST /api/v1/screen-batch`**: Bulk triage processing for community screening camps.
+- **`POST /api/v1/report/pdf`** and **`POST /api/v1/report/bilateral-pdf`**: Streams compiled ReportLab PDFs.
+- **`POST /api/v1/report/camp-archive`**: Streams in-memory ZIP package with CSV manifest, executive summary, and overlays.
+
+### 3. Run Automated CI/CD Test Suite (PyTest)
+```bash
+pytest -v
+```
+Runs 20 automated unit and integration tests across image quality heuristics, model inference, CSME detection, PDF generation, and all REST endpoints.
 
 ## Evaluate the model on your own labelled images
-
 ```bash
 python evaluate_model.py --data test_images --csv labels.csv --out eval_results
 ```
-
 `labels.csv` needs the columns `id_code` and `diagnosis` (0 to 4); alternatively, name the files `stage_N_...` or put them in folders `0` to `4`. The script reports accuracy, QWK, the confusion matrix, per-class sensitivity and specificity, referable-DR AUC, calibration (ECE and NLL), and accuracy by confidence level. Use `--crop` to test border cropping. Use only images that were never used for training or calibration.
 
 ## Repository contents
 
 | Path | Purpose |
 |---|---|
-| `app.py` | Streamlit application |
+| `app.py` | Streamlit interactive clinical workstation |
+| `api.py` | FastAPI hospital microservice with OpenAPI/Swagger docs |
+| `engine.py` | Framework-agnostic clinical & algorithmic core engine |
+| `tests/` | Comprehensive PyTest suite (20 automated unit & API tests) |
 | `retina_insight_paper_retraining.ipynb` | Research retraining notebook (15 epochs, 3-way split, scale augmentation, calibration, IDRiD discovery) |
 | `best_retina_model.pth` | Trained EfficientNet-B0 weights |
 | `temperature.txt` | Fitted calibration temperature |
 | `sample_images/` | 25 demo images from APTOS (22 were in the training split, 3 in validation; for demonstration only, not evidence of performance) |
 | `evaluate_model.py` | Evaluation script |
+| `check_samples.py` | Core verification benchmark across all 25 sample cases |
 | `requirements.txt`, `packages.txt` | Dependencies for deployment |
 
 ## Data and attribution

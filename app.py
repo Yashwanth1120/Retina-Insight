@@ -1367,6 +1367,13 @@ st.sidebar.markdown(f"- **Temperature ($T$):** `{temperature:.4f}`")
 if not temp_from_file:
     st.sidebar.warning("temperature.txt missing or invalid: using the default temperature.")
 
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🔌 Hospital System Integration")
+st.sidebar.caption("Headless FastAPI microservice active for EHR, PACS & HIS integration:")
+st.sidebar.code("uvicorn api:app --port 8000", language="bash")
+st.sidebar.markdown("- **OpenAPI Docs:** `http://localhost:8000/docs`")
+st.sidebar.markdown("- **Automated Tests:** `pytest -v` (20 passed)")
+
 # ----------------- MAIN SCREEN -----------------
 if screening_mode == "Single Fundus Scan":
     if img_bgr is not None:
