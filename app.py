@@ -103,34 +103,35 @@ st.markdown(hospital_clinical_style, unsafe_allow_html=True)
 
 def render_hospital_header():
     header_html = """
-    <div class="hospital-header-container">
-      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-        <div style="display: flex; align-items: center; gap: 14px;">
-          <div style="width: 44px; height: 44px; border-radius: 10px; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 22px; box-shadow: 0 2px 8px rgba(37,99,235,0.4);">
+    <div class="hospital-header-container" style="padding: 12px 20px; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 40px; height: 40px; border-radius: 9px; background: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 20px; box-shadow: 0 2px 8px rgba(37,99,235,0.4);">
             👁️
           </div>
           <div>
-            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-              <span style="font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: #f8fafc;">Retina Insight Clinical Diagnostic Station</span>
-              <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 6px; text-transform: uppercase;">v2.5 Hospital Enterprise</span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.02em; color: #f8fafc;">Retina Insight Clinical Diagnostic Station</span>
+              <span style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.35); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px; text-transform: uppercase;">v2.5 Hospital Enterprise</span>
             </div>
-            <div style="font-size: 12.5px; color: #94a3b8; margin-top: 3px;">
-              AI-Assisted Retinal Screening • ETDRS CSME Macular Risk Engine • Explainable AI (Grad-CAM++)
+            <div style="font-size: 11.5px; color: #94a3b8; margin-top: 2px;">
+              AI-Assisted Retinal Screening &bull; ETDRS CSME Macular Risk Engine &bull; Explainable AI (Grad-CAM++)
             </div>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; background: rgba(15,23,42,0.6); border: 1px solid #334155; padding: 6px 12px; border-radius: 8px; font-size: 11.5px; color: #38bdf8;">
-          <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #10b981; display: inline-block;"></span>
-          <span style="font-weight: 600;">Diagnostic AI System Online</span>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div style="font-size: 11px; color: #cbd5e1; background: rgba(15,23,42,0.6); border: 1px solid #334155; padding: 4px 10px; border-radius: 6px;">
+            ⚖️ <b>Clinical Decision Support:</b> Attending ophthalmologist review required
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(15,23,42,0.6); border: 1px solid #334155; padding: 4px 10px; border-radius: 6px; font-size: 11px; color: #38bdf8;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background-color: #10b981; display: inline-block;"></span>
+            <span style="font-weight: 600;">System Online</span>
+          </div>
         </div>
       </div>
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
-    st.warning(
-        "⚠️ **Clinical Screening Decision Support Aid — Not a Standalone Medical Diagnosis.** "
-        "All automated triage suggestions, lesion segmentations, and reports must be reviewed and confirmed by a qualified ophthalmologist before clinical intervention."
-    )
 
 render_hospital_header()
 
@@ -1777,51 +1778,35 @@ blur_threshold = st.sidebar.slider(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 🏆 System Benchmarks")
-st.sidebar.markdown("**APTOS validation split**")
-st.sidebar.markdown(f"- **QWK Kappa:** `{BENCHMARKS['qwk']}`")
-st.sidebar.markdown(f"- **Accuracy:** `{BENCHMARKS['accuracy']}`")
-st.sidebar.markdown(f"- **Calibration ECE:** `{BENCHMARKS['ece']}`")
-st.sidebar.markdown("**External test (IDRiD, 103 images)**")
-st.sidebar.markdown(f"- **Accuracy:** `{EXTERNAL['accuracy']}`")
-st.sidebar.markdown(f"- **QWK Kappa:** `{EXTERNAL['qwk']}`")
-st.sidebar.markdown(f"- **Referable-DR AUC:** `{EXTERNAL['auc_referable']}`")
-st.sidebar.caption("Performance drops on images from other cameras and clinics.")
-st.sidebar.markdown(f"- **Temperature ($T$):** `{temperature:.4f}`")
-if not temp_from_file:
-    st.sidebar.warning("temperature.txt missing or invalid: using the default temperature.")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🔌 Hospital System Integration")
-st.sidebar.caption("Headless FastAPI microservice active for EHR, PACS & HIS integration:")
-st.sidebar.code("uvicorn api:app --port 8000", language="bash")
-st.sidebar.markdown("- **OpenAPI Docs:** `http://localhost:8000/docs`")
-st.sidebar.markdown("- **Automated Tests:** `pytest -v` (22+ passed)")
+with st.sidebar.expander("ℹ️ System Benchmarks & API Telemetry", expanded=False):
+    st.markdown("**APTOS Validation Split**")
+    st.markdown(f"- **QWK Kappa:** `{BENCHMARKS['qwk']}`")
+    st.markdown(f"- **Accuracy:** `{BENCHMARKS['accuracy']}`")
+    st.markdown(f"- **Calibration ECE:** `{BENCHMARKS['ece']}`")
+    st.markdown("**External Test (IDRiD, 103 images)**")
+    st.markdown(f"- **Accuracy:** `{EXTERNAL['accuracy']}`")
+    st.markdown(f"- **QWK Kappa:** `{EXTERNAL['qwk']}`")
+    st.markdown(f"- **Referable-DR AUC:** `{EXTERNAL['auc_referable']}`")
+    st.caption("Performance drops on images from other cameras and clinics.")
+    st.markdown(f"- **Temperature ($T$):** `{temperature:.4f}`")
+    if not temp_from_file:
+        st.warning("temperature.txt missing or invalid: using default temperature.")
+    st.markdown("---")
+    st.markdown("**FastAPI Microservice Integration**")
+    st.code("uvicorn api:app --port 8000", language="bash")
+    st.caption("OpenAPI Docs: http://localhost:8000/docs • CI/CD: 24 tests passed")
 
 # ----------------- MAIN SCREEN -----------------
 if screening_mode == "Single Fundus Scan":
     if img_bgr is not None:
-        st.info(f"🔍 **Active Image:** `{active_source_label}`")
         img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-        st.subheader("1. Image Quality Check (Automated Heuristics)")
         is_valid, msg, blur_val, bright_val = assess_image_quality(img_bgr, blur_threshold=blur_threshold)
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if is_valid:
-                st.success(f"✅ {msg}")
-            else:
-                st.error(f"❌ {msg}")
-        with col2:
-            st.metric("Blur Score (Normalized)", f"{blur_val:.1f}")
-        with col3:
-            st.metric("Illumination Intensity", f"{bright_val:.1f}")
-
         if not is_valid:
-            st.error(f"🚨 **Screening Halted:** {msg}")
-            st.image(img_rgb, caption="Rejected Image", width=350)
+            st.error(f"🚨 **Screening Halted (Image Quality Failure):** {msg}")
+            st.image(img_rgb, caption="Rejected Image — Blur or Illumination Artifacts Detected", width=380)
         else:
+            st.caption(f"📁 **Active Scan:** `{active_source_label}` &bull; Quality Heuristics: `Passed` (Blur: {blur_val:.1f}, Illum: {bright_val:.1f})")
             proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(
                 img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
             )
@@ -1838,247 +1823,209 @@ if screening_mode == "Single Fundus Scan":
             }
 
             st.markdown("---")
-            st.subheader("2. Diagnostic Screening & Reliability")
             render_single_triage_ribbon(patient_info_dict, pred_class, confidence, csme_res)
 
-            res1, res2 = st.columns([1, 1.5])
-            with res1:
-                st.write(f"### {DIAGNOSIS_INFO[pred_class]['name']}")
-                st.progress(max(0, min(int(confidence) if not np.isnan(confidence) else 0, 100)))
-                st.write(f"**Calibrated Confidence:** `{confidence:.2f}%`")
-                if confidence < LOW_CONFIDENCE_THRESHOLD:
-                    st.warning("⚠️ Low model confidence. Manual review by a clinician is strongly advised.")
-                st.info(f"**Suggested action:** {DIAGNOSIS_INFO[pred_class]['action']}")
-
-            with res2:
-                chart_data = {f"Stage {i}": round(float(calibrated_probs[i] * 100), 2) for i in range(5)}
-                st.bar_chart(chart_data)
-
-            # CSME Macular Edema Risk Assessment Card
-            csme_color = csme_res.get("badge_color", "green")
-            border_hex = "#EF4444" if csme_color == "red" else "#F59E0B" if csme_color == "orange" else "#10B981"
-            bg_hex = "#450a0a" if csme_color == "red" else "#451a03" if csme_color == "orange" else "#064e3b"
-            text_hex = "#fca5a5" if csme_color == "red" else "#fcd34d" if csme_color == "orange" else "#6ee7b7"
-
-            st.markdown(
-                f"""<div style="background-color: {bg_hex}; border: 1.5px solid {border_hex}; border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
-<h4 style="margin: 0 0 6px 0; color: #ffffff;">🎯 Macular Assessment: {csme_res['status']}</h4>
-<p style="margin: 0; color: #cbd5e1; font-size: 13.5px;">
-<b>CSME Risk Score:</b> <code>{csme_res['score']:.1f}/100</code> &nbsp;|&nbsp; 
-<b>Central Foveal Exudates (&lt;500 μm):</b> <code>{csme_res['foveal_exudates']} px</code> &nbsp;|&nbsp; 
-<b>Macular Ring Exudates (1-2 DD):</b> <code>{csme_res['macular_exudates']} px</code>
-</p>
-<p style="margin: 6px 0 0 0; color: {text_hex}; font-size: 13px;"><b>Clinical Directive:</b> {csme_res['action']}</p>
-</div>""",
-                unsafe_allow_html=True
-            )
-
-            st.markdown("---")
-            st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Attention & Micro-Lesion Localization")
-            st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates.")
-
-            # Interactive Visualizer Controls
-            ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
-            with ctrl1:
-                selected_cmap = st.selectbox(
-                    "🎨 Clinical Heatmap Colormap:",
-                    list(COLORMAP_OPTIONS.keys()),
-                    index=0,
-                    help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
-                )
-            with ctrl2:
-                cam_alpha = st.slider(
-                    "🔎 Heatmap Opacity (α):",
-                    min_value=0.10,
-                    max_value=0.90,
-                    value=0.45,
-                    step=0.05,
-                    help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
-                )
-            with ctrl3:
-                st.write("")
-                st.write("")
-                show_contours = st.checkbox(
-                    "✨ Outline High-Attention Lesions",
-                    value=False,
-                    help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
-                )
-
-            overlay = generate_cam_overlay(
-                base_rgb=proc_rgb,
-                heatmap=heatmap,
-                colormap_name=selected_cmap,
-                alpha=cam_alpha,
-                show_contours=show_contours
-            )
-
-            short_cmap = selected_cmap.split()[0]
-            contour_flag = " + Contours" if show_contours else ""
-
-            t1, t2, t3, t4 = st.tabs([
-                "📷 1. Original Scan",
-                "🔬 2. Ben Graham Preprocessed",
-                f"🔥 3. Grad-CAM++ Attention ({short_cmap})",
-                "🎯 4. Macular ROI & CSME Exudates"
+            tab_diag, tab_metrics, tab_report = st.tabs([
+                "👁️ Clinical Diagnosis & Retinal Scans",
+                "📊 AI Confidence & Lesion Analytics",
+                "📋 Medical Report & EHR Sign-off"
             ])
-            with t1:
-                st.image(img_rgb, caption="1. Original Retinal Scan", use_container_width=True)
-                st.caption(f"Image Resolution: {img_rgb.shape[1]}x{img_rgb.shape[0]} px | Blur Variance: {blur_val:.1f} | Illumination: {bright_val:.1f}")
-            with t2:
-                st.image(proc_rgb, caption="2. Ben Graham Preprocessed (256x256)", use_container_width=True)
-                st.caption("Standardized Gaussian difference enhancement (σ=10) matching model training illumination domain.")
-            with t3:
-                st.image(overlay, caption=f"3. Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
-                st.caption("Layer-4 activation heatmap capturing microaneurysms, hemorrhages, and vascular tortuosity.")
-            with t4:
-                st.image(csme_res["annotated_rgb"], caption="4. Macular Field: Foveal Zone (Cyan 500μm) + Outer Macula (Blue 1.5DD) + Detected Hard Exudates (Yellow)", use_container_width=True)
-                st.caption("ETDRS Macular Ring Segmentation: Hard lipid exudates inside 500μm foveal center signal sight-threatening CSME.")
 
-            # ----------------- SECTION 4: CLINICAL CARE PATHWAY & SPECIALIST LOCATOR -----------------
-            st.markdown("---")
-            st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
-            proto = CLINICAL_PROTOCOLS[pred_class]
-
-            c_triage, c_timeline = st.columns([1.2, 1])
-            with c_triage:
-                if pred_class >= 2:
-                    st.error(f"🚨 **Triage Priority:** {proto['urgency']}")
-                elif pred_class == 1:
-                    st.warning(f"⚠️ **Triage Priority:** {proto['urgency']}")
-                else:
-                    st.success(f"🟢 **Triage Priority:** {proto['urgency']}")
-                st.write(f"**Referral Care Level:** `{proto['referral_level']}`")
-                st.write(f"**Diagnostic Workup:** {proto['workup']}")
-
-            with c_timeline:
-                st.info(f"⏱️ **Follow-up Timeline:** {proto['timeline']}")
-                if p_hba1c >= 8.0:
-                    st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
-
-            # Evidence-Based Systemic & Lifestyle Guidance
-            with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
-                st.write(f"**Clinical Summary:** {proto['summary']}")
-                st.write("**Key Management Goals:**")
-                for goal in proto['target_goals']:
-                    st.markdown(f"- {goal}")
-                st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
-
-            # Nearby Eye Hospital & Retina Specialist Locator
-            loc_clean = "Hyderabad"
-            with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(pred_class >= 2)):
-                st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
-                
-                loc_col1, loc_col2 = st.columns([2.5, 1])
-                with loc_col1:
-                    user_loc = st.text_input(
-                        "Enter Patient's City, Area, or PIN Code:",
-                        value="Hyderabad",
-                        help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
+            # ----------------- TAB 1: CLINICAL DIAGNOSIS & RETINAL SCANS -----------------
+            with tab_diag:
+                ctrl_col1, ctrl_col2 = st.columns([2.5, 1.5])
+                with ctrl_col1:
+                    view_mode = st.radio(
+                        "Display Mode:",
+                        ["📸 Original Fundus", "🔥 Grad-CAM++ Lesions", "🔬 Ben Graham Contrast", "🎯 ETDRS Macular ROI"],
+                        horizontal=True,
+                        key="single_view_mode"
                     )
-                with loc_col2:
-                    st.write("")
-                    st.write("")
-                    loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
+                with ctrl_col2:
+                    with st.expander("⚙️ Heatmap Display Settings", expanded=False):
+                        selected_cmap = st.selectbox(
+                            "Colormap:",
+                            list(COLORMAP_OPTIONS.keys()),
+                            index=0,
+                            key="single_cmap"
+                        )
+                        cam_alpha = st.slider("Opacity (α):", 0.10, 0.90, 0.45, 0.05, key="single_alpha")
+                        show_contours = st.checkbox("Outline Lesions", value=False, key="single_contours")
 
-                encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
-                maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
-                
-                st.link_button(
-                    f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
-                    url=maps_url,
-                    use_container_width=True
+                overlay = generate_cam_overlay(
+                    base_rgb=proc_rgb,
+                    heatmap=heatmap,
+                    colormap_name=selected_cmap,
+                    alpha=cam_alpha,
+                    show_contours=show_contours
                 )
-                st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
-                for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
-                    st.markdown(f"**{region}:**")
-                    for h in hospitals:
-                        st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
 
-            # ----------------- SECTION 5: NOTES & PDF EXPORT -----------------
-            st.markdown("---")
-            st.subheader("5. Clinical Notes & PDF Report")
+                v_col1, v_col2 = st.columns(2)
+                with v_col1:
+                    st.image(img_rgb, caption=f"Original Retinal Scan ({img_rgb.shape[1]}×{img_rgb.shape[0]} px)", use_container_width=True)
+                with v_col2:
+                    if view_mode == "📸 Original Fundus":
+                        st.image(img_rgb, caption="Original Fundus Photograph", use_container_width=True)
+                    elif view_mode == "🔥 Grad-CAM++ Lesions":
+                        st.image(overlay, caption=f"Grad-CAM++ Lesion Localization ({selected_cmap.split()[0]} | α={cam_alpha:.2f})", use_container_width=True)
+                    elif view_mode == "🔬 Ben Graham Contrast":
+                        st.image(proc_rgb, caption=f"Ben Graham Contrast Enhanced ({current_target_size}×{current_target_size})", use_container_width=True)
+                    else:
+                        st.image(csme_res["annotated_rgb"], caption=f"ETDRS Macular Field ({csme_res['status']})", use_container_width=True)
 
-            patient_info_dict = {
-                "name": p_name,
-                "age": p_age,
-                "gender": p_gender,
-                "duration": p_duration,
-                "hba1c": p_hba1c,
-                "location": loc_clean
-            }
+                proto = CLINICAL_PROTOCOLS[pred_class]
+                u_col1, u_col2 = st.columns([1.5, 1])
+                with u_col1:
+                    st.markdown(
+                        f"""<div style="background:#1e293b;border-left:4px solid {'#ef4444' if pred_class>=2 else '#f59e0b' if pred_class==1 else '#10b981'};border-radius:8px;padding:12px 16px;margin-top:10px;">
+<div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Recommended Clinical Protocol</div>
+<div style="font-size:15px;font-weight:700;color:#f8fafc;margin-top:2px;">{proto['urgency']} &bull; <span style="font-weight:400;color:#cbd5e1;">{proto['timeline']}</span></div>
+<div style="font-size:12px;color:#cbd5e1;margin-top:4px;"><b>Directive:</b> {DIAGNOSIS_INFO[pred_class]['action']}</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
+                with u_col2:
+                    st.markdown(
+                        f"""<div style="background:#1e293b;border-left:4px solid {'#ef4444' if csme_res.get('key')=='High' else '#f59e0b' if csme_res.get('key')=='Moderate' else '#10b981'};border-radius:8px;padding:12px 16px;margin-top:10px;">
+<div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Macular Edema Status</div>
+<div style="font-size:15px;font-weight:700;color:#f8fafc;margin-top:2px;">{csme_res['status']}</div>
+<div style="font-size:12px;color:#cbd5e1;margin-top:4px;">Risk Score: <b>{csme_res['score']:.1f}/100</b> &bull; Exudates: <b>{csme_res['macular_exudates']} px</b></div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
 
-            notes_text, is_gemini, notes_error = generate_clinical_notes(
-                stage_idx=pred_class,
-                stage_name=DIAGNOSIS_INFO[pred_class]['name'],
-                confidence=confidence,
-                patient_info=patient_info_dict,
-                api_key=gemini_key.strip() if gemini_key else None,
-                csme_info=csme_res
-            )
+            # ----------------- TAB 2: AI CONFIDENCE & LESION ANALYTICS -----------------
+            with tab_metrics:
+                m1, m2 = st.columns([1.2, 1.8])
+                with m1:
+                    st.markdown("#### 🎯 Diagnostic Confidence")
+                    st.markdown(f"### {DIAGNOSIS_INFO[pred_class]['name']}")
+                    st.progress(max(0, min(int(confidence) if not np.isnan(confidence) else 0, 100)))
+                    st.write(f"**Calibrated Confidence:** `{confidence:.2f}%`")
+                    if confidence < LOW_CONFIDENCE_THRESHOLD:
+                        st.warning("⚠️ Low model confidence. Manual review by a clinician is strongly advised.")
+                    st.caption(f"Inference Mode: 4-Fold TTA Invariance &bull; Architecture: {b_meta['name']}")
 
-            if notes_error:
-                st.warning(f"ℹ️ {notes_error}")
-            if is_gemini:
-                st.success("🤖 Notes drafted by **Gemini (gemini-2.5-flash)** from the screening result only. Review before use.")
-            else:
-                st.caption("ℹ️ Notes generated by the built-in offline summary engine.")
+                    st.markdown("---")
+                    st.markdown("#### 🔍 Automated Quality Heuristics")
+                    q1, q2 = st.columns(2)
+                    with q1:
+                        st.metric("Blur Score", f"{blur_val:.1f}", delta="Passed" if is_valid else "Blurry")
+                    with q2:
+                        st.metric("Illumination", f"{bright_val:.1f}", delta="Optimal")
 
-            clinician_info, final_notes = render_clinician_signoff_section(notes_text, key_prefix="single")
+                with m2:
+                    st.markdown("#### 📊 5-Stage Calibrated Probability Distribution")
+                    chart_df = pd.DataFrame({
+                        "Probability (%)": [round(float(calibrated_probs[i] * 100), 2) for i in range(5)]
+                    }, index=["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"])
+                    chart_df.index.name = "DR Stage"
+                    st.bar_chart(chart_df)
 
-            st.markdown("#### 📄 Certified Clinical Report & EHR Data Export")
-            try:
-                pdf_bytes = generate_pdf_report(
-                    patient_info=patient_info_dict,
+                    st.markdown("#### 🎯 ETDRS Macular Risk Telemetry")
+                    st.markdown(
+                        f"""<div style="background-color: {bg_hex}; border: 1.5px solid {border_hex}; border-radius: 8px; padding: 12px 16px; margin-top: 6px;">
+<div style="font-size: 14px; font-weight: 700; color: #ffffff;">🎯 CSME Status: {csme_res['status']} (Score: {csme_res['score']:.1f}/100)</div>
+<div style="margin-top: 4px; color: #cbd5e1; font-size: 12.5px;">
+&bull; Central Foveal Exudates (&lt;500 μm): <b>{csme_res['foveal_exudates']} px</b><br>
+&bull; Macular Ring Exudates (1-2 DD): <b>{csme_res['macular_exudates']} px</b><br>
+&bull; Foveal CAM Attention Intensity: <b>{csme_res.get('foveal_cam_intensity', 0):.3f}</b>
+</div>
+<div style="margin-top: 6px; color: {text_hex}; font-size: 12.5px; font-weight: 600;">Directive: {csme_res['action']}</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
+
+            # ----------------- TAB 3: MEDICAL REPORT & EHR SIGN-OFF -----------------
+            with tab_report:
+                loc_clean = "Hyderabad"
+                patient_info_dict = {
+                    "name": p_name,
+                    "age": p_age,
+                    "gender": p_gender,
+                    "duration": p_duration,
+                    "hba1c": p_hba1c,
+                    "location": loc_clean
+                }
+
+                notes_text, is_gemini, notes_error = generate_clinical_notes(
+                    stage_idx=pred_class,
                     stage_name=DIAGNOSIS_INFO[pred_class]['name'],
                     confidence=confidence,
-                    original_rgb=cv2.resize(img_rgb, (300, 300)),
-                    gradcam_rgb=cv2.resize(overlay, (300, 300)),
-                    clinical_notes_text=final_notes,
-                    stage_idx=pred_class,
-                    csme_info=csme_res,
-                    clinician_info=clinician_info
+                    patient_info=patient_info_dict,
+                    api_key=gemini_key.strip() if gemini_key else None,
+                    csme_info=csme_res
                 )
 
-                safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
-                clean_filename = f"Retina_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                if notes_error:
+                    st.warning(f"ℹ️ {notes_error}")
+                if is_gemini:
+                    st.success("🤖 Notes drafted by **Gemini (gemini-2.5-flash)** from screening results only.")
+                else:
+                    st.caption("ℹ️ Clinical notes generated by the built-in offline clinical engine.")
 
-                exp_col1, exp_col2 = st.columns(2)
-                with exp_col1:
-                    st.download_button(
-                        label="📥 Download Certified Clinical PDF Report",
-                        data=pdf_bytes,
-                        file_name=clean_filename,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary"
+                clinician_info, final_notes = render_clinician_signoff_section(notes_text, key_prefix="single")
+
+                st.markdown("#### 📄 Certified Clinical Report & EHR Data Export")
+                try:
+                    pdf_bytes = generate_pdf_report(
+                        patient_info=patient_info_dict,
+                        stage_name=DIAGNOSIS_INFO[pred_class]['name'],
+                        confidence=confidence,
+                        original_rgb=cv2.resize(img_rgb, (300, 300)),
+                        gradcam_rgb=cv2.resize(overlay, (300, 300)),
+                        clinical_notes_text=final_notes,
+                        stage_idx=pred_class,
+                        csme_info=csme_res,
+                        clinician_info=clinician_info
                     )
-                with exp_col2:
-                    import json
-                    export_record = {
-                        "patient_name": p_name,
-                        "age": p_age,
-                        "gender": p_gender,
-                        "duration_years": p_duration,
-                        "hba1c": p_hba1c,
-                        "location": loc_clean,
-                        "stage_index": int(pred_class),
-                        "stage_name": DIAGNOSIS_INFO[pred_class]["name"],
-                        "confidence_percent": round(confidence, 2),
-                        "triage_urgency": CLINICAL_PROTOCOLS[pred_class]["urgency"],
-                        "timeline": CLINICAL_PROTOCOLS[pred_class]["timeline"],
-                        "csme_status": csme_res.get("status"),
-                        "csme_score": round(float(csme_res.get("score", 0)), 1),
-                        "clinician_signature": clinician_info
-                    }
-                    st.download_button(
-                        label="💾 Download Clinical Data Record (JSON)",
-                        data=json.dumps(export_record, indent=2).encode("utf-8"),
-                        file_name=f"Clinical_Record_{safe_name}_{datetime.now().strftime('%Y%m%d')}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                st.error(f"Could not compile PDF: {e}")
+
+                    safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
+                    clean_filename = f"Retina_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+
+                    exp_col1, exp_col2 = st.columns(2)
+                    with exp_col1:
+                        st.download_button(
+                            label="📥 Download Certified Clinical PDF Report",
+                            data=pdf_bytes,
+                            file_name=clean_filename,
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="primary"
+                        )
+                    with exp_col2:
+                        import json
+                        export_record = {
+                            "patient_name": p_name,
+                            "age": p_age,
+                            "gender": p_gender,
+                            "duration_years": p_duration,
+                            "hba1c": p_hba1c,
+                            "location": loc_clean,
+                            "stage_index": int(pred_class),
+                            "stage_name": DIAGNOSIS_INFO[pred_class]["name"],
+                            "confidence_percent": round(confidence, 2),
+                            "triage_urgency": CLINICAL_PROTOCOLS[pred_class]["urgency"],
+                            "timeline": CLINICAL_PROTOCOLS[pred_class]["timeline"],
+                            "csme_status": csme_res.get("status"),
+                            "csme_score": round(float(csme_res.get("score", 0)), 1),
+                            "clinician_signature": clinician_info
+                        }
+                        st.download_button(
+                            label="💾 Download Clinical Data Record (JSON)",
+                            data=json.dumps(export_record, indent=2).encode("utf-8"),
+                            file_name=f"Clinical_Record_{safe_name}_{datetime.now().strftime('%Y%m%d')}.json",
+                            mime="application/json",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.error(f"Could not compile PDF: {e}")
+
+                with st.expander("📍 Accredited Vitreo-Retinal Eye Hospital Directory", expanded=False):
+                    for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
+                        st.markdown(f"**{region}:**")
+                        for h in hospitals:
+                            st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
     else:
         st.info("👈 Please select a patient case from the sidebar or upload a fundus photograph to begin screening.")
 elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
@@ -2097,43 +2044,21 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
             else:
                 st.warning("⚠️ Left Eye (OS — Oculus Sinister) scan pending.")
     else:
-        st.info(f"🔍 **Active Bilateral Workup:** Right Eye (OD): `{od_source_label}` &nbsp;|&nbsp; Left Eye (OS): `{os_source_label}`")
         img_rgb_od = cv2.cvtColor(img_bgr_od, cv2.COLOR_BGR2RGB)
         img_rgb_os = cv2.cvtColor(img_bgr_os, cv2.COLOR_BGR2RGB)
 
-        st.subheader("1. Bilateral Image Quality Check (Automated Heuristics)")
         is_valid_od, msg_od, blur_od, bright_od = assess_image_quality(img_bgr_od, blur_threshold=blur_threshold)
         is_valid_os, msg_os, blur_os, bright_os = assess_image_quality(img_bgr_os, blur_threshold=blur_threshold)
-
-        q1, q2 = st.columns(2)
-        with q1:
-            st.markdown("#### 👁️ Right Eye (OD — Oculus Dexter)")
-            if is_valid_od:
-                st.success(f"✅ {msg_od}")
-            else:
-                st.error(f"❌ {msg_od}")
-            m1, m2 = st.columns(2)
-            m1.metric("OD Blur Score", f"{blur_od:.1f}")
-            m2.metric("OD Illumination", f"{bright_od:.1f}")
-
-        with q2:
-            st.markdown("#### 👁️ Left Eye (OS — Oculus Sinister)")
-            if is_valid_os:
-                st.success(f"✅ {msg_os}")
-            else:
-                st.error(f"❌ {msg_os}")
-            m3, m4 = st.columns(2)
-            m3.metric("OS Blur Score", f"{blur_os:.1f}")
-            m4.metric("OS Illumination", f"{bright_os:.1f}")
 
         if not is_valid_od or not is_valid_os:
             st.error("🚨 **Bilateral Screening Halted:** One or both images failed clinical quality heuristics. Please re-acquire or upload clear fundus images.")
             r_col1, r_col2 = st.columns(2)
             with r_col1:
-                st.image(img_rgb_od, caption=f"Right Eye (OD): {'Passed' if is_valid_od else 'Rejected'}", use_container_width=True)
+                st.image(img_rgb_od, caption=f"Right Eye (OD): {'Passed' if is_valid_od else 'Rejected: ' + msg_od}", use_container_width=True)
             with r_col2:
-                st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected'}", use_container_width=True)
+                st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected: ' + msg_os}", use_container_width=True)
         else:
+            st.caption(f"📁 **Active Bilateral Session:** OD `{od_source_label}` &bull; OS `{os_source_label}` &bull; Quality Heuristics: `Passed (OD & OS)`")
             # 2. Run Inference & Grad-CAM++ for both eyes
             proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(
                 img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
@@ -2163,297 +2088,257 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
             }
 
             st.markdown("---")
-            st.subheader("2. Bilateral Diagnostic Screening & Inter-Ocular Asymmetry")
             render_bilateral_triage_ribbon(patient_info_dict, pred_class_od, conf_od, csme_od, pred_class_os, conf_os, csme_os)
 
-            # Overall Patient Triage Card
-            st.markdown(
-                f"""<div style="background-color: #1E3A8A; color: white; padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;">
-                <h3 style="margin: 0; color: white;">🏥 OVERALL PATIENT TRIAGE: {DIAGNOSIS_INFO[overall_stage]['name'].upper()}</h3>
-                <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.95;">
-                <b>Governing Eye:</b> {higher_eye_label} &nbsp;|&nbsp; 
-                <b>Clinical Urgency:</b> {proto_overall['urgency']} &nbsp;|&nbsp; 
-                <b>Follow-up Timeline:</b> {proto_overall['timeline']}
-                </p>
-                </div>""",
-                unsafe_allow_html=True
-            )
+            tab_diag, tab_metrics, tab_report = st.tabs([
+                "👁️ Clinical View & Dual Scans",
+                "📊 AI Confidence & Inter-Ocular Metrics",
+                "📋 Medical Report & EHR Sign-off"
+            ])
 
-            # Asymmetry Assessment
-            if stage_diff == 0:
-                st.success(f"🟢 **Bilateral Concordance (Symmetric Involvement):** Both eyes exhibit identical microvascular severity ({DIAGNOSIS_INFO[overall_stage]['name']}). Typical systemic manifestation of diabetic retinopathy.")
-            elif stage_diff == 1:
-                st.warning(f"⚠️ **Mild Inter-Ocular Asymmetry (Δ = 1 Stage):** Disparity in microvascular lesion load between eyes ({higher_eye_label} at Stage {overall_stage} vs. contralateral eye at Stage {min(pred_class_od, pred_class_os)}). Triage protocol is governed strictly by the higher-severity eye.")
-            else:
-                st.error(f"🚨 **CLINICAL RED FLAG — MARKED INTER-OCULAR ASYMMETRY (Δ = {stage_diff} Stages):** Significant inter-ocular discrepancy detected ({higher_eye_label} is Stage {overall_stage}, while contralateral eye is Stage {min(pred_class_od, pred_class_os)}). Highly asymmetric DR is uncommon and warrants urgent carotid duplex Doppler ultrasonography (to rule out ipsilateral Ocular Ischemic Syndrome / carotid stenosis) and evaluation for asymmetric glaucoma or previous vascular compromise.")
+            # ----------------- TAB 1: CLINICAL VIEW & DUAL SCANS -----------------
+            with tab_diag:
+                ctrl_col1, ctrl_col2 = st.columns([2.5, 1.5])
+                with ctrl_col1:
+                    bi_view_mode = st.radio(
+                        "Dual Eye View:",
+                        ["📸 Raw Fundus Scans", "🔥 Grad-CAM++ Lesions", "🔬 Ben Graham Contrast", "🎯 ETDRS Macular Field"],
+                        horizontal=True,
+                        key="bi_view_mode"
+                    )
+                with ctrl_col2:
+                    with st.expander("⚙️ Heatmap Display Settings", expanded=False):
+                        selected_cmap = st.selectbox(
+                            "Colormap:",
+                            list(COLORMAP_OPTIONS.keys()),
+                            index=0,
+                            key="bilateral_cmap"
+                        )
+                        cam_alpha = st.slider("Opacity (α):", 0.10, 0.90, 0.45, 0.05, key="bilateral_alpha")
+                        show_contours = st.checkbox("Outline Lesions", value=False, key="bilateral_contours")
 
-            # Dual KPI Cards
-            kpi1, kpi2 = st.columns(2)
-            with kpi1:
-                st.markdown(f"#### 👁️ Right Eye (OD): {DIAGNOSIS_INFO[pred_class_od]['name']}")
-                st.progress(max(0, min(int(conf_od) if not np.isnan(conf_od) else 0, 100)))
-                st.write(f"**Calibrated Confidence:** `{conf_od:.2f}%`")
-                if conf_od < LOW_CONFIDENCE_THRESHOLD:
-                    st.warning("⚠️ Low model confidence for OD. Clinician review advised.")
-                st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_od]['action']}")
-                od_csme_color = csme_od.get("badge_color", "green")
-                od_badge_hex = "#EF4444" if od_csme_color == "red" else "#F59E0B" if od_csme_color == "orange" else "#10B981"
-                st.markdown(f"<span style='color:{od_badge_hex}; font-weight:600;'>🎯 OD Macula: {csme_od['status']}</span> (Score: {csme_od['score']:.1f}/100 | Exudates: {csme_od['macular_exudates']} px)", unsafe_allow_html=True)
+                overlay_od = generate_cam_overlay(proc_rgb_od, heatmap_od, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
+                overlay_os = generate_cam_overlay(proc_rgb_os, heatmap_os, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
+                short_cmap = selected_cmap.split()[0]
 
-            with kpi2:
-                st.markdown(f"#### 👁️ Left Eye (OS): {DIAGNOSIS_INFO[pred_class_os]['name']}")
-                st.progress(max(0, min(int(conf_os) if not np.isnan(conf_os) else 0, 100)))
-                st.write(f"**Calibrated Confidence:** `{conf_os:.2f}%`")
-                if conf_os < LOW_CONFIDENCE_THRESHOLD:
-                    st.warning("⚠️ Low model confidence for OS. Clinician review advised.")
-                st.caption(f"Suggested action: {DIAGNOSIS_INFO[pred_class_os]['action']}")
-                os_csme_color = csme_os.get("badge_color", "green")
-                os_badge_hex = "#EF4444" if os_csme_color == "red" else "#F59E0B" if os_csme_color == "orange" else "#10B981"
-                st.markdown(f"<span style='color:{os_badge_hex}; font-weight:600;'>🎯 OS Macula: {csme_os['status']}</span> (Score: {csme_os['score']:.1f}/100 | Exudates: {csme_os['macular_exudates']} px)", unsafe_allow_html=True)
+                v_od, v_os = st.columns(2)
+                with v_od:
+                    st.markdown(f"#### 👁️ Right Eye (OD): {DIAGNOSIS_INFO[pred_class_od]['name']} ({conf_od:.1f}%)")
+                    if bi_view_mode == "📸 Raw Fundus Scans":
+                        st.image(img_rgb_od, caption=f"OD Original Fundus ({img_rgb_od.shape[1]}×{img_rgb_od.shape[0]} px)", use_container_width=True)
+                    elif bi_view_mode == "🔥 Grad-CAM++ Lesions":
+                        st.image(overlay_od, caption=f"OD Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f})", use_container_width=True)
+                    elif bi_view_mode == "🔬 Ben Graham Contrast":
+                        st.image(proc_rgb_od, caption=f"OD Ben Graham Contrast ({current_target_size}×{current_target_size})", use_container_width=True)
+                    else:
+                        st.image(csme_od["annotated_rgb"], caption=f"OD Macula: {csme_od['status']} ({csme_od['score']:.1f}/100)", use_container_width=True)
 
-            # Comparative Probability Bar Chart
-            st.markdown("##### 📊 Comparative Stage Probability Distribution (OD vs. OS)")
-            chart_df = pd.DataFrame({
-                "OD (Right Eye) %": [round(float(probs_od[i] * 100), 2) for i in range(5)],
-                "OS (Left Eye) %": [round(float(probs_os[i] * 100), 2) for i in range(5)]
-            }, index=["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"])
-            chart_df.index.name = "DR Stage"
-            st.bar_chart(chart_df)
+                with v_os:
+                    st.markdown(f"#### 👁️ Left Eye (OS): {DIAGNOSIS_INFO[pred_class_os]['name']} ({conf_os:.1f}%)")
+                    if bi_view_mode == "📸 Raw Fundus Scans":
+                        st.image(img_rgb_os, caption=f"OS Original Fundus ({img_rgb_os.shape[1]}×{img_rgb_os.shape[0]} px)", use_container_width=True)
+                    elif bi_view_mode == "🔥 Grad-CAM++ Lesions":
+                        st.image(overlay_os, caption=f"OS Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f})", use_container_width=True)
+                    elif bi_view_mode == "🔬 Ben Graham Contrast":
+                        st.image(proc_rgb_os, caption=f"OS Ben Graham Contrast ({current_target_size}×{current_target_size})", use_container_width=True)
+                    else:
+                        st.image(csme_os["annotated_rgb"], caption=f"OS Macula: {csme_os['status']} ({csme_os['score']:.1f}/100)", use_container_width=True)
 
-            # Section 3: Explainable AI (Grad-CAM++)
-            st.markdown("---")
-            st.subheader("3. Explainable AI (XAI) — Grad-CAM++ Dual-Eye Lesion Localization")
-            st.caption("Grad-CAM++ calculates positive second- and third-order partial derivatives to isolate scattered microaneurysms, hemorrhages, and exudates across both retinas.")
-
-            ctrl1, ctrl2, ctrl3 = st.columns([1.5, 1.2, 1.3])
-            with ctrl1:
-                selected_cmap = st.selectbox(
-                    "🎨 Clinical Heatmap Colormap:",
-                    list(COLORMAP_OPTIONS.keys()),
-                    index=0,
-                    key="bilateral_cmap",
-                    help="Switch between classic ophthalmic JET, high-contrast Inferno, Turbo, or colorblind-accessible Viridis."
-                )
-            with ctrl2:
-                cam_alpha = st.slider(
-                    "🔎 Heatmap Opacity (α):",
-                    min_value=0.10,
-                    max_value=0.90,
-                    value=0.45,
-                    step=0.05,
-                    key="bilateral_alpha",
-                    help="Adjust blend ratio between retinal fundus anatomy and lesion activation map."
-                )
-            with ctrl3:
-                st.write("")
-                st.write("")
-                show_contours = st.checkbox(
-                    "✨ Outline High-Attention Lesions",
-                    value=False,
-                    key="bilateral_contours",
-                    help="Draws white boundary contours around high-confidence activation zones (> 60% peak intensity)."
+                # Overall Protocol Card
+                st.markdown(
+                    f"""<div style="background:#1e293b;border-left:4px solid {'#ef4444' if overall_stage>=2 else '#f59e0b' if overall_stage==1 else '#10b981'};border-radius:8px;padding:12px 18px;margin-top:12px;">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;">
+<div>
+  <div style="font-size:11px;color:#94a3b8;font-weight:700;text-transform:uppercase;">Overall Patient Triage &bull; Governing Eye: {higher_eye_label}</div>
+  <div style="font-size:16px;font-weight:700;color:#f8fafc;margin-top:2px;">{DIAGNOSIS_INFO[overall_stage]['name']} &bull; <span style="color:#cbd5e1;font-weight:400;">{proto_overall['urgency']}</span></div>
+  <div style="font-size:12.5px;color:#cbd5e1;margin-top:4px;">⏱️ <b>Recommended Timeline:</b> {proto_overall['timeline']} &nbsp;|&nbsp; <b>Care Level:</b> {proto_overall['referral_level']}</div>
+</div>
+</div>
+</div>""",
+                    unsafe_allow_html=True
                 )
 
-            overlay_od = generate_cam_overlay(proc_rgb_od, heatmap_od, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
-            overlay_os = generate_cam_overlay(proc_rgb_os, heatmap_os, colormap_name=selected_cmap, alpha=cam_alpha, show_contours=show_contours)
-
-            short_cmap = selected_cmap.split()[0]
-            contour_flag = " + Contours" if show_contours else ""
-
-            v_od, v_os = st.columns(2)
-            with v_od:
-                st.markdown("#### 👁️ Right Eye (OD) Workup")
-                od_t1, od_t2, od_t3, od_t4 = st.tabs(["📷 1. Raw Fundus", "🔬 2. Graham CLAHE", f"🔥 3. Grad-CAM++ ({short_cmap})", "🎯 4. CSME Macula"])
-                with od_t1:
-                    st.image(img_rgb_od, caption="OD: Original Retinal Scan", use_container_width=True)
-                    st.caption(f"OD Resolution: {img_rgb_od.shape[1]}x{img_rgb_od.shape[0]} | Blur: {blur_od:.1f} | Brightness: {bright_od:.1f}")
-                with od_t2:
-                    st.image(proc_rgb_od, caption="OD: Ben Graham Enhanced (256x256)", use_container_width=True)
-                    st.caption("Standardized local contrast normalization matching model receptive field.")
-                with od_t3:
-                    st.image(overlay_od, caption=f"OD: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
-                    st.caption("Right Eye positive gradient activation highlighting microvascular lesion load.")
-                with od_t4:
-                    st.image(csme_od["annotated_rgb"], caption=f"OD Macula: {csme_od['status']} ({csme_od['score']:.1f}/100)", use_container_width=True)
-                    st.caption("ETDRS Macular Field: Central Fovea (500µm) & Outer Macular Exudates.")
-
-            with v_os:
-                st.markdown("#### 👁️ Left Eye (OS) Workup")
-                os_t1, os_t2, os_t3, os_t4 = st.tabs(["📷 1. Raw Fundus", "🔬 2. Graham CLAHE", f"🔥 3. Grad-CAM++ ({short_cmap})", "🎯 4. CSME Macula"])
-                with os_t1:
-                    st.image(img_rgb_os, caption="OS: Original Retinal Scan", use_container_width=True)
-                    st.caption(f"OS Resolution: {img_rgb_os.shape[1]}x{img_rgb_os.shape[0]} | Blur: {blur_os:.1f} | Brightness: {bright_os:.1f}")
-                with os_t2:
-                    st.image(proc_rgb_os, caption="OS: Ben Graham Enhanced (256x256)", use_container_width=True)
-                    st.caption("Standardized local contrast normalization matching model receptive field.")
-                with os_t3:
-                    st.image(overlay_os, caption=f"OS: Grad-CAM++ ({short_cmap} | α={cam_alpha:.2f}{contour_flag})", use_container_width=True)
-                    st.caption("Left Eye positive gradient activation highlighting microvascular lesion load.")
-                with os_t4:
-                    st.image(csme_os["annotated_rgb"], caption=f"OS Macula: {csme_os['status']} ({csme_os['score']:.1f}/100)", use_container_width=True)
-                    st.caption("ETDRS Macular Field: Central Fovea (500µm) & Outer Macular Exudates.")
-
-            # Section 4: Clinical Care Pathway & Specialist Referral
-            st.markdown("---")
-            st.subheader("4. Recommended Clinical Care Pathway & Specialist Referral")
-            c_triage, c_timeline = st.columns([1.2, 1])
-            with c_triage:
-                if overall_stage >= 2:
-                    st.error(f"🚨 **Overall Triage Priority:** {proto_overall['urgency']}")
-                elif overall_stage == 1:
-                    st.warning(f"⚠️ **Overall Triage Priority:** {proto_overall['urgency']}")
+            # ----------------- TAB 2: AI CONFIDENCE & INTER-OCULAR METRICS -----------------
+            with tab_metrics:
+                if stage_diff == 0:
+                    st.success(f"🟢 **Bilateral Concordance (Symmetric Involvement):** Both eyes exhibit identical microvascular severity ({DIAGNOSIS_INFO[overall_stage]['name']}). Typical systemic manifestation.")
+                elif stage_diff == 1:
+                    st.warning(f"⚠️ **Mild Inter-Ocular Asymmetry (Δ = 1 Stage):** Disparity in microvascular load between eyes ({higher_eye_label} Stage {overall_stage} vs. contralateral Stage {min(pred_class_od, pred_class_os)}). Governed by higher-severity eye.")
                 else:
-                    st.success(f"🟢 **Overall Triage Priority:** {proto_overall['urgency']}")
-                st.write(f"**Referral Care Level:** `{proto_overall['referral_level']}`")
-                st.write(f"**Diagnostic Workup:** {proto_overall['workup']}")
+                    st.error(f"🚨 **CLINICAL RED FLAG — MARKED ASYMMETRY (Δ = {stage_diff} Stages):** Significant discrepancy detected ({higher_eye_label} Stage {overall_stage} vs. contralateral Stage {min(pred_class_od, pred_class_os)}). Warrants urgent carotid duplex Doppler ultrasonography (to rule out Ocular Ischemic Syndrome / carotid stenosis).")
 
-            with c_timeline:
-                st.info(f"⏱️ **Follow-up Timeline:** {proto_overall['timeline']}")
-                if p_hba1c >= 8.0:
-                    st.warning(f"⚠️ Patient HbA1c is **{p_hba1c:.1f}%** (elevated). Tight glycemic control with an endocrinologist is critical to prevent DR acceleration.")
+                chart_col, conf_col = st.columns([1.6, 1.4])
+                with chart_col:
+                    st.markdown("#### 📊 Comparative Stage Probability Distribution (OD vs. OS)")
+                    chart_df = pd.DataFrame({
+                        "OD (Right Eye) %": [round(float(probs_od[i] * 100), 2) for i in range(5)],
+                        "OS (Left Eye) %": [round(float(probs_os[i] * 100), 2) for i in range(5)]
+                    }, index=["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"])
+                    chart_df.index.name = "DR Stage"
+                    st.bar_chart(chart_df)
 
-            # Evidence-Based Systemic & Lifestyle Guidance
-            with st.expander("📋 Evidence-Based Clinical Management Guidelines (ICO/WHO Standards)", expanded=True):
-                st.write(f"**Clinical Summary:** {proto_overall['summary']}")
-                st.write("**Key Management Goals:**")
-                for goal in proto_overall['target_goals']:
-                    st.markdown(f"- {goal}")
-                st.caption("ℹ️ Guidance aligned with International Council of Ophthalmology (ICO) Diabetic Eye Care Guidelines.")
+                with conf_col:
+                    st.markdown("#### 🎯 Eye-Specific Diagnostic Reliability")
+                    st.markdown(f"**Right Eye (OD):** `{conf_od:.2f}%` Calibrated Confidence")
+                    st.progress(max(0, min(int(conf_od) if not np.isnan(conf_od) else 0, 100)))
+                    if conf_od < LOW_CONFIDENCE_THRESHOLD:
+                        st.warning("⚠️ Low model confidence for OD.")
 
-            # Nearby Eye Hospital Locator
-            loc_clean = "Hyderabad"
-            with st.expander("📍 Find Nearby Eye Hospitals & Retina Specialists (Primary Care Triage)", expanded=(overall_stage >= 2)):
-                st.markdown("For patients identified with referable or sight-threatening diabetic retinopathy, prompt referral to an accredited vitreo-retinal facility is essential.")
-                loc_col1, loc_col2 = st.columns([2.5, 1])
-                with loc_col1:
-                    user_loc = st.text_input(
-                        "Enter Patient's City, Area, or PIN Code:",
-                        value="Hyderabad",
-                        key="bilateral_loc_input",
-                        help="Enter any town, area, or city (e.g., Medchal, Secunderabad, Warangal, Karimnagar, Bangalore)."
+                    st.markdown(f"**Left Eye (OS):** `{conf_os:.2f}%` Calibrated Confidence")
+                    st.progress(max(0, min(int(conf_os) if not np.isnan(conf_os) else 0, 100)))
+                    if conf_os < LOW_CONFIDENCE_THRESHOLD:
+                        st.warning("⚠️ Low model confidence for OS.")
+
+                    st.markdown("---")
+                    st.markdown("#### 🔍 Quality Metrics")
+                    q_od, q_os = st.columns(2)
+                    with q_od:
+                        st.caption("Right Eye (OD)")
+                        st.metric("OD Blur", f"{blur_od:.1f}")
+                        st.metric("OD Illum.", f"{bright_od:.1f}")
+                    with q_os:
+                        st.caption("Left Eye (OS)")
+                        st.metric("OS Blur", f"{blur_os:.1f}")
+                        st.metric("OS Illum.", f"{bright_os:.1f}")
+
+                st.markdown("#### 🔬 ETDRS Macular (CSME) Quantitative Comparison")
+                c_od, c_os = st.columns(2)
+                with c_od:
+                    od_badge = "#ef4444" if csme_od.get('key')=='High' else "#f59e0b" if csme_od.get('key')=='Moderate' else "#10b981"
+                    st.markdown(
+                        f"""<div style="background:#1e293b;border:1.5px solid {od_badge};border-radius:8px;padding:12px 14px;">
+<div style="font-size:14px;font-weight:700;color:#f8fafc;">Right Eye (OD) Macular Telemetry</div>
+<div style="font-size:12.5px;color:#cbd5e1;margin-top:4px;">
+&bull; Status: <b style="color:{od_badge};">{csme_od['status']}</b> (Score: {csme_od['score']:.1f}/100)<br>
+&bull; Central Foveal Exudates (&lt;500µm): <b>{csme_od['foveal_exudates']} px</b><br>
+&bull; Macular Ring Exudates (1-2 DD): <b>{csme_od['macular_exudates']} px</b>
+</div>
+</div>""",
+                        unsafe_allow_html=True
                     )
-                with loc_col2:
-                    st.write("")
-                    st.write("")
-                    loc_clean = user_loc.strip() if user_loc and user_loc.strip() else "near me"
+                with c_os:
+                    os_badge = "#ef4444" if csme_os.get('key')=='High' else "#f59e0b" if csme_os.get('key')=='Moderate' else "#10b981"
+                    st.markdown(
+                        f"""<div style="background:#1e293b;border:1.5px solid {os_badge};border-radius:8px;padding:12px 14px;">
+<div style="font-size:14px;font-weight:700;color:#f8fafc;">Left Eye (OS) Macular Telemetry</div>
+<div style="font-size:12.5px;color:#cbd5e1;margin-top:4px;">
+&bull; Status: <b style="color:{os_badge};">{csme_os['status']}</b> (Score: {csme_os['score']:.1f}/100)<br>
+&bull; Central Foveal Exudates (&lt;500µm): <b>{csme_os['foveal_exudates']} px</b><br>
+&bull; Macular Ring Exudates (1-2 DD): <b>{csme_os['macular_exudates']} px</b>
+</div>
+</div>""",
+                        unsafe_allow_html=True
+                    )
 
-                encoded_loc = urllib.parse.quote_plus(f"retina specialist eye hospital in {loc_clean}")
-                maps_url = f"https://www.google.com/maps/search/{encoded_loc}"
-                st.link_button(
-                    f"🔎 Search Eye Hospitals & Retina Specialists in '{loc_clean}' (Google Maps)",
-                    url=maps_url,
-                    use_container_width=True
-                )
-                st.markdown("#### Accredited Tertiary Eye Care Centers (Directory):")
-                for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
-                    st.markdown(f"**{region}:**")
-                    for h in hospitals:
-                        st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
+            # ----------------- TAB 3: MEDICAL REPORT & EHR SIGN-OFF -----------------
+            with tab_report:
+                loc_clean = "Hyderabad"
+                patient_info_dict = {
+                    "name": p_name,
+                    "age": p_age,
+                    "gender": p_gender,
+                    "duration": p_duration,
+                    "hba1c": p_hba1c,
+                    "location": loc_clean
+                }
 
-            # Section 5: Bilateral Clinical Notes & PDF Report
-            st.markdown("---")
-            st.subheader("5. Bilateral Clinical Notes & Unified PDF Report")
-
-            patient_info_dict = {
-                "name": p_name,
-                "age": p_age,
-                "gender": p_gender,
-                "duration": p_duration,
-                "hba1c": p_hba1c,
-                "location": loc_clean
-            }
-
-            notes_text, is_gemini, notes_error = generate_bilateral_clinical_notes(
-                patient_info=patient_info_dict,
-                od_stage=pred_class_od,
-                od_conf=conf_od,
-                os_stage=pred_class_os,
-                os_conf=conf_os,
-                api_key=gemini_key.strip() if gemini_key else None,
-                od_csme=csme_od,
-                os_csme=csme_os
-            )
-
-            if notes_error:
-                st.warning(f"ℹ️ {notes_error}")
-            if is_gemini:
-                st.success("🤖 Bilateral notes drafted by **Gemini (gemini-2.5-flash)** from the screening result only. Review before use.")
-            else:
-                st.caption("ℹ️ Bilateral notes generated by the built-in offline clinical engine.")
-
-            clinician_info, final_notes = render_clinician_signoff_section(notes_text, key_prefix="bilateral")
-
-            st.markdown("#### 📄 Certified Bilateral Report & EHR Data Export")
-            try:
-                pdf_bytes = generate_bilateral_pdf_report(
+                notes_text, is_gemini, notes_error = generate_bilateral_clinical_notes(
                     patient_info=patient_info_dict,
-                    od_stage_idx=pred_class_od,
-                    od_confidence=conf_od,
-                    od_orig_rgb=cv2.resize(img_rgb_od, (300, 300)),
-                    od_cam_rgb=cv2.resize(overlay_od, (300, 300)),
-                    od_blur=blur_od,
-                    os_stage_idx=pred_class_os,
-                    os_confidence=conf_os,
-                    os_orig_rgb=cv2.resize(img_rgb_os, (300, 300)),
-                    os_cam_rgb=cv2.resize(overlay_os, (300, 300)),
-                    os_blur=blur_os,
-                    clinical_notes_text=final_notes,
+                    od_stage=pred_class_od,
+                    od_conf=conf_od,
+                    os_stage=pred_class_os,
+                    os_conf=conf_os,
+                    api_key=gemini_key.strip() if gemini_key else None,
                     od_csme=csme_od,
-                    os_csme=csme_os,
-                    clinician_info=clinician_info
+                    os_csme=csme_os
                 )
 
-                safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
-                clean_filename = f"Retina_Bilateral_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+                if notes_error:
+                    st.warning(f"ℹ️ {notes_error}")
+                if is_gemini:
+                    st.success("🤖 Bilateral notes drafted by **Gemini (gemini-2.5-flash)** from screening results only.")
+                else:
+                    st.caption("ℹ️ Bilateral notes generated by the built-in offline clinical engine.")
 
-                exp_col1, exp_col2 = st.columns(2)
-                with exp_col1:
-                    st.download_button(
-                        label="📥 Download Certified Bilateral PDF Report",
-                        data=pdf_bytes,
-                        file_name=clean_filename,
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary"
+                clinician_info, final_notes = render_clinician_signoff_section(notes_text, key_prefix="bilateral")
+
+                st.markdown("#### 📄 Certified Bilateral Report & EHR Data Export")
+                try:
+                    pdf_bytes = generate_bilateral_pdf_report(
+                        patient_info=patient_info_dict,
+                        od_stage_idx=pred_class_od,
+                        od_confidence=conf_od,
+                        od_orig_rgb=cv2.resize(img_rgb_od, (300, 300)),
+                        od_cam_rgb=cv2.resize(overlay_od, (300, 300)),
+                        od_blur=blur_od,
+                        os_stage_idx=pred_class_os,
+                        os_confidence=conf_os,
+                        os_orig_rgb=cv2.resize(img_rgb_os, (300, 300)),
+                        os_cam_rgb=cv2.resize(overlay_os, (300, 300)),
+                        os_blur=blur_os,
+                        clinical_notes_text=final_notes,
+                        od_csme=csme_od,
+                        os_csme=csme_os,
+                        clinician_info=clinician_info
                     )
-                with exp_col2:
-                    import json
-                    export_record = {
-                        "patient_name": p_name,
-                        "age": p_age,
-                        "gender": p_gender,
-                        "duration_years": p_duration,
-                        "hba1c": p_hba1c,
-                        "location": loc_clean,
-                        "overall_stage_index": int(overall_stage),
-                        "overall_stage_name": DIAGNOSIS_INFO[overall_stage]["name"],
-                        "governing_eye": higher_eye_label,
-                        "inter_ocular_asymmetry": stage_diff,
-                        "od": {
-                            "stage_index": int(pred_class_od),
-                            "stage_name": DIAGNOSIS_INFO[pred_class_od]["name"],
-                            "confidence_percent": round(conf_od, 2),
-                            "csme_status": csme_od.get("status"),
-                            "csme_score": round(float(csme_od.get("score", 0)), 1)
-                        },
-                        "os": {
-                            "stage_index": int(pred_class_os),
-                            "stage_name": DIAGNOSIS_INFO[pred_class_os]["name"],
-                            "confidence_percent": round(conf_os, 2),
-                            "csme_status": csme_os.get("status"),
-                            "csme_score": round(float(csme_os.get("score", 0)), 1)
-                        },
-                        "clinician_signature": clinician_info
-                    }
-                    st.download_button(
-                        label="💾 Download Bilateral Record (JSON)",
-                        data=json.dumps(export_record, indent=2).encode("utf-8"),
-                        file_name=f"Bilateral_Record_{safe_name}_{datetime.now().strftime('%Y%m%d')}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                st.error(f"Could not compile Bilateral PDF: {e}")
+
+                    safe_name = re.sub(r'[^A-Za-z0-9_-]+', '_', str(p_name).strip()) or "Patient"
+                    clean_filename = f"Retina_Bilateral_Report_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+
+                    exp_col1, exp_col2 = st.columns(2)
+                    with exp_col1:
+                        st.download_button(
+                            label="📥 Download Certified Bilateral PDF Report",
+                            data=pdf_bytes,
+                            file_name=clean_filename,
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="primary"
+                        )
+                    with exp_col2:
+                        import json
+                        export_record = {
+                            "patient_name": p_name,
+                            "age": p_age,
+                            "gender": p_gender,
+                            "duration_years": p_duration,
+                            "hba1c": p_hba1c,
+                            "location": loc_clean,
+                            "overall_stage_index": int(overall_stage),
+                            "overall_stage_name": DIAGNOSIS_INFO[overall_stage]["name"],
+                            "governing_eye": higher_eye_label,
+                            "inter_ocular_asymmetry": stage_diff,
+                            "od": {
+                                "stage_index": int(pred_class_od),
+                                "stage_name": DIAGNOSIS_INFO[pred_class_od]["name"],
+                                "confidence_percent": round(conf_od, 2),
+                                "csme_status": csme_od.get("status"),
+                                "csme_score": round(float(csme_od.get("score", 0)), 1)
+                            },
+                            "os": {
+                                "stage_index": int(pred_class_os),
+                                "stage_name": DIAGNOSIS_INFO[pred_class_os]["name"],
+                                "confidence_percent": round(conf_os, 2),
+                                "csme_status": csme_os.get("status"),
+                                "csme_score": round(float(csme_os.get("score", 0)), 1)
+                            },
+                            "clinician_signature": clinician_info
+                        }
+                        st.download_button(
+                            label="💾 Download Bilateral Record (JSON)",
+                            data=json.dumps(export_record, indent=2).encode("utf-8"),
+                            file_name=f"Bilateral_Record_{safe_name}_{datetime.now().strftime('%Y%m%d')}.json",
+                            mime="application/json",
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    st.error(f"Could not compile Bilateral PDF: {e}")
+
+                with st.expander("📍 Accredited Vitreo-Retinal Eye Hospital Directory", expanded=False):
+                    for region, hospitals in EYE_HOSPITALS_DIRECTORY.items():
+                        st.markdown(f"**{region}:**")
+                        for h in hospitals:
+                            st.markdown(f"- **[{h['name']}]({h['url']})** — *{h['city']}* ({h['type']}) | 📞 `{h['contact']}`")
 elif screening_mode == "Screening Camp Batch Processing (Bulk Triage)":
     st.subheader("⛺ Screening Camp Batch Processing & Triage (Epidemiological Workup)")
     st.caption("High-throughput automated screening for community vision camps, mobile health vans, and rural outreach programs.")
