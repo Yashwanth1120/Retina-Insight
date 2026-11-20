@@ -1808,113 +1808,140 @@ with st.sidebar.expander("ℹ️ System Benchmarks & API Telemetry", expanded=Fa
 
 # ----------------- MAIN SCREEN -----------------
 # High-Visibility Main Screen Input & Upload Hub
-with st.container():
-    hub_c1, hub_c2 = st.columns([1.3, 2.7])
-    with hub_c1:
-        main_protocol_choice = st.selectbox(
-            "Screening Protocol Workflow:",
+st.markdown(
+    """<div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1.5px solid #2563eb; border-radius: 10px; padding: 10px 16px; margin-bottom: 10px;">
+  <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+    <span style="font-size: 13.5px; font-weight: 700; color: #60a5fa; letter-spacing: -0.01em;">
+      📥 Patient Scan Input & Evaluation Hub
+    </span>
+    <span style="font-size: 11px; color: #94a3b8;">
+      Upload patient fundus photographs or evaluate validated clinical demo scenarios
+    </span>
+  </div>
+</div>""",
+    unsafe_allow_html=True
+)
+
+proto_col, _ = st.columns([1.5, 2.5])
+with proto_col:
+    main_protocol_choice = st.selectbox(
+        "Screening Protocol Workflow:",
+        [
+            "Clinical Bilateral Screening (OD & OS)",
+            "Single Fundus Scan",
+            "Screening Camp Batch Processing (Bulk Triage)"
+        ],
+        index=0 if screening_mode.startswith("Clinical Bilateral") else 1 if screening_mode.startswith("Single") else 2,
+        key="hub_protocol_select"
+    )
+    screening_mode = main_protocol_choice
+
+if screening_mode == "Clinical Bilateral Screening (OD & OS)":
+    tab_bi_upload, tab_bi_presets = st.tabs([
+        "📤 Upload Patient Scans (OD & OS)",
+        "📚 Preloaded Clinical Cases & Presets"
+    ])
+    with tab_bi_upload:
+        u_c1, u_c2 = st.columns(2)
+        with u_c1:
+            hub_up_od = st.file_uploader(
+                "📸 Right Eye (OD — Oculus Dexter) Fundus Image",
+                type=["png", "jpg", "jpeg"],
+                key="main_tab_up_od",
+                help="Upload fundus photograph for the Right Eye."
+            )
+            if hub_up_od is not None:
+                od_bytes = np.asarray(bytearray(hub_up_od.read()), dtype=np.uint8)
+                img_bgr_od = cv2.imdecode(od_bytes, cv2.IMREAD_COLOR)
+                od_source_label = f"Uploaded OD: {hub_up_od.name}"
+        with u_c2:
+            hub_up_os = st.file_uploader(
+                "📸 Left Eye (OS — Oculus Sinister) Fundus Image",
+                type=["png", "jpg", "jpeg"],
+                key="main_tab_up_os",
+                help="Upload fundus photograph for the Left Eye."
+            )
+            if hub_up_os is not None:
+                os_bytes = np.asarray(bytearray(hub_up_os.read()), dtype=np.uint8)
+                img_bgr_os = cv2.imdecode(os_bytes, cv2.IMREAD_COLOR)
+                os_source_label = f"Uploaded OS: {hub_up_os.name}"
+
+        if hub_up_od is None and hub_up_os is None:
+            st.caption("ℹ️ *Drag and drop your patient scans above. Previewing preloaded clinical scenario below until files are uploaded.*")
+
+    with tab_bi_presets:
+        main_bi_preset = st.selectbox(
+            "Select Preloaded Clinical Scenario:",
             [
-                "Clinical Bilateral Screening (OD & OS)",
-                "Single Fundus Scan",
-                "Screening Camp Batch Processing (Bulk Triage)"
+                "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)",
+                "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)",
+                "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)",
+                "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)",
+                "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)",
             ],
-            index=0 if screening_mode.startswith("Clinical Bilateral") else 1 if screening_mode.startswith("Single") else 2,
-            key="hub_protocol_select"
+            key="hub_preset_select"
         )
-        screening_mode = main_protocol_choice
+        if hub_up_od is None and hub_up_os is None:
+            if main_bi_preset == "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)":
+                img_bgr_od, _ = get_sample_image(2, case_idx=0)
+                img_bgr_os, _ = get_sample_image(2, case_idx=1)
+                od_source_label = "OD: Stage 2 Case 1"
+                os_source_label = "OS: Stage 2 Case 2"
+            elif main_bi_preset == "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)":
+                img_bgr_od, _ = get_sample_image(3, case_idx=0)
+                img_bgr_os, _ = get_sample_image(1, case_idx=0)
+                od_source_label = "OD: Stage 3 Case 1"
+                os_source_label = "OS: Stage 1 Case 1"
+            elif main_bi_preset == "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)":
+                img_bgr_od, _ = get_sample_image(4, case_idx=0)
+                img_bgr_os, _ = get_sample_image(2, case_idx=0)
+                od_source_label = "OD: Stage 4 Case 1"
+                os_source_label = "OS: Stage 2 Case 1"
+            elif main_bi_preset == "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)":
+                img_bgr_od, _ = get_sample_image(1, case_idx=0)
+                img_bgr_os, _ = get_sample_image(0, case_idx=0)
+                od_source_label = "OD: Stage 1 Case 1"
+                os_source_label = "OS: Stage 0 Case 1"
+            elif main_bi_preset == "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)":
+                img_bgr_od, _ = get_sample_image(0, case_idx=0)
+                img_bgr_os, _ = get_sample_image(0, case_idx=1)
+                od_source_label = "OD: Stage 0 Case 1"
+                os_source_label = "OS: Stage 0 Case 2"
 
-    with hub_c2:
-        if screening_mode == "Clinical Bilateral Screening (OD & OS)":
-            main_bi_input_mode = st.radio(
-                "Input Source:",
-                ["📤 Upload Patient Scans (OD & OS)", "📚 Clinical Presets & Sample Cases"],
-                horizontal=True,
-                index=1 if bilateral_source.startswith("📚") and not (st.session_state.get("hub_up_od") or st.session_state.get("hub_up_os")) else 0,
-                key="hub_bi_radio"
+elif screening_mode == "Single Fundus Scan":
+    tab_sin_upload, tab_sin_presets = st.tabs([
+        "📤 Upload Custom Fundus Photograph",
+        "📚 Clinical Database Sample Cases"
+    ])
+    with tab_sin_upload:
+        hub_up_sin = st.file_uploader(
+            "📸 Upload Single Eye Fundus Photograph (.png, .jpg, .jpeg)",
+            type=["png", "jpg", "jpeg"],
+            key="main_tab_up_sin"
+        )
+        if hub_up_sin is not None:
+            sin_bytes = np.asarray(bytearray(hub_up_sin.read()), dtype=np.uint8)
+            img_bgr = cv2.imdecode(sin_bytes, cv2.IMREAD_COLOR)
+            active_source_label = f"Uploaded File: {hub_up_sin.name}"
+    with tab_sin_presets:
+        p_c1, p_c2 = st.columns(2)
+        with p_c1:
+            hub_stage_sel = st.selectbox(
+                "Severity Stage:",
+                ["Stage 0 (No DR)", "Stage 1 (Mild DR)", "Stage 2 (Moderate DR)", "Stage 3 (Severe DR)", "Stage 4 (Proliferative DR)"],
+                index=2,
+                key="hub_stage_select"
             )
-            if main_bi_input_mode.startswith("📤"):
-                u_c1, u_c2 = st.columns(2)
-                with u_c1:
-                    hub_up_od = st.file_uploader("📸 Right Eye (OD) Fundus Scan", type=["png", "jpg", "jpeg"], key="hub_up_od")
-                    if hub_up_od is not None:
-                        od_bytes = np.asarray(bytearray(hub_up_od.read()), dtype=np.uint8)
-                        img_bgr_od = cv2.imdecode(od_bytes, cv2.IMREAD_COLOR)
-                        od_source_label = f"Uploaded OD: {hub_up_od.name}"
-                with u_c2:
-                    hub_up_os = st.file_uploader("📸 Left Eye (OS) Fundus Scan", type=["png", "jpg", "jpeg"], key="hub_up_os")
-                    if hub_up_os is not None:
-                        os_bytes = np.asarray(bytearray(hub_up_os.read()), dtype=np.uint8)
-                        img_bgr_os = cv2.imdecode(os_bytes, cv2.IMREAD_COLOR)
-                        os_source_label = f"Uploaded OS: {hub_up_os.name}"
-            else:
-                main_bi_preset = st.selectbox(
-                    "Select Preloaded Clinical Scenario:",
-                    [
-                        "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)",
-                        "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)",
-                        "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)",
-                        "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)",
-                        "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)",
-                    ],
-                    key="hub_preset_select"
-                )
-                if main_bi_preset == "Preset 1: Bilateral Moderate DR (OD Stage 2, OS Stage 2)":
-                    img_bgr_od, _ = get_sample_image(2, case_idx=0)
-                    img_bgr_os, _ = get_sample_image(2, case_idx=1)
-                    od_source_label = "OD: Stage 2 Case 1"
-                    os_source_label = "OS: Stage 2 Case 2"
-                elif main_bi_preset == "Preset 2: Asymmetric Progression (OD Stage 3 Severe, OS Stage 1 Mild)":
-                    img_bgr_od, _ = get_sample_image(3, case_idx=0)
-                    img_bgr_os, _ = get_sample_image(1, case_idx=0)
-                    od_source_label = "OD: Stage 3 Case 1"
-                    os_source_label = "OS: Stage 1 Case 1"
-                elif main_bi_preset == "Preset 3: High-Risk Proliferative Asymmetry (OD Stage 4 PDR, OS Stage 2 Moderate)":
-                    img_bgr_od, _ = get_sample_image(4, case_idx=0)
-                    img_bgr_os, _ = get_sample_image(2, case_idx=0)
-                    od_source_label = "OD: Stage 4 Case 1"
-                    os_source_label = "OS: Stage 2 Case 1"
-                elif main_bi_preset == "Preset 4: Early Unilateral Retinopathy (OD Stage 1 Mild, OS Stage 0 Normal)":
-                    img_bgr_od, _ = get_sample_image(1, case_idx=0)
-                    img_bgr_os, _ = get_sample_image(0, case_idx=0)
-                    od_source_label = "OD: Stage 1 Case 1"
-                    os_source_label = "OS: Stage 0 Case 1"
-                elif main_bi_preset == "Preset 5: Bilateral Healthy Retina (OD Stage 0 Normal, OS Stage 0 Normal)":
-                    img_bgr_od, _ = get_sample_image(0, case_idx=0)
-                    img_bgr_os, _ = get_sample_image(0, case_idx=1)
-                    od_source_label = "OD: Stage 0 Case 1"
-                    os_source_label = "OS: Stage 0 Case 2"
+        stage_n = int(hub_stage_sel.split()[1])
+        with p_c2:
+            hub_case_sel = st.selectbox("Patient Case:", [f"Case {i+1}" for i in range(5)], index=0, key="hub_case_select")
+        case_i = int(hub_case_sel.split()[-1]) - 1
+        if hub_up_sin is None:
+            img_bgr, _ = get_sample_image(stage_n, case_idx=case_i)
+            active_source_label = f"Database: {hub_stage_sel} — {hub_case_sel}"
 
-        elif screening_mode == "Single Fundus Scan":
-            main_sin_input_mode = st.radio(
-                "Input Source:",
-                ["📤 Upload Custom Scan (.png, .jpg)", "📚 Clinical Database Samples"],
-                horizontal=True,
-                key="hub_sin_radio"
-            )
-            if main_sin_input_mode.startswith("📤"):
-                hub_up_sin = st.file_uploader("📸 Upload Single Eye Fundus Photograph", type=["png", "jpg", "jpeg"], key="hub_up_sin")
-                if hub_up_sin is not None:
-                    sin_bytes = np.asarray(bytearray(hub_up_sin.read()), dtype=np.uint8)
-                    img_bgr = cv2.imdecode(sin_bytes, cv2.IMREAD_COLOR)
-                    active_source_label = f"Uploaded File: {hub_up_sin.name}"
-            else:
-                p_c1, p_c2 = st.columns(2)
-                with p_c1:
-                    hub_stage_sel = st.selectbox(
-                        "Severity Stage:",
-                        ["Stage 0 (No DR)", "Stage 1 (Mild DR)", "Stage 2 (Moderate DR)", "Stage 3 (Severe DR)", "Stage 4 (Proliferative DR)"],
-                        index=2,
-                        key="hub_stage_select"
-                    )
-                stage_n = int(hub_stage_sel.split()[1])
-                with p_c2:
-                    hub_case_sel = st.selectbox("Patient Case:", [f"Case {i+1}" for i in range(5)], index=0, key="hub_case_select")
-                case_i = int(hub_case_sel.split()[-1]) - 1
-                img_bgr, _ = get_sample_image(stage_n, case_idx=case_i)
-                active_source_label = f"Database: {hub_stage_sel} — {hub_case_sel}"
-
-        else: # Screening camp
-            st.caption("Screening camp batch ingestion can be loaded from 15 verified sample cases or uploaded in bulk via the sidebar.")
+else: # Screening camp
+    st.caption("Screening camp batch ingestion can be loaded from 15 verified sample cases or uploaded in bulk via the sidebar.")
 
 # Main screen clinical and AI settings expander
 with st.expander("⚙️ Patient Demographics & AI Model Configuration", expanded=False):
@@ -1949,7 +1976,7 @@ if screening_mode == "Single Fundus Scan":
             st.error(f"🚨 **Screening Halted (Image Quality Failure):** {msg}")
             st.image(img_rgb, caption="Rejected Image — Blur or Illumination Artifacts Detected", width=380)
         else:
-            st.caption(f"📁 **Active Scan:** `{active_source_label}` &bull; Quality Heuristics: `Passed` (Blur: {blur_val:.1f}, Illum: {bright_val:.1f}) &nbsp;|&nbsp; 💡 *To evaluate custom images, switch to **'📤 Upload Custom Scan'** in the sidebar.*")
+            st.caption(f"📁 **Active Scan:** `{active_source_label}` &bull; Quality Heuristics: `Passed` (Blur: {blur_val:.1f}, Illum: {bright_val:.1f})")
             proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(
                 img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
             )
@@ -2201,7 +2228,7 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
             with r_col2:
                 st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected: ' + msg_os}", use_container_width=True)
         else:
-            st.caption(f"📁 **Active Bilateral Session:** OD `{od_source_label}` &bull; OS `{os_source_label}` &bull; Quality Heuristics: `Passed (OD & OS)` &nbsp;|&nbsp; 💡 *To evaluate a new patient, switch to **'📤 Upload Dual Scans'** in the sidebar.*")
+            st.caption(f"📁 **Active Bilateral Session:** OD `{od_source_label}` &bull; OS `{os_source_label}` &bull; Quality Heuristics: `Passed (OD & OS)`")
             # 2. Run Inference & Grad-CAM++ for both eyes
             proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(
                 img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
