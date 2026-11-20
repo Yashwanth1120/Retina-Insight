@@ -1538,9 +1538,9 @@ batch_scans_data = [] # list of (display_name, img_bgr)
 
 if screening_mode == "Single Fundus Scan":
     st.sidebar.subheader("📁 Fundus Input (Single Eye)")
-    input_mode = st.sidebar.radio("Input Source:", ["Clinical Database", "Upload Custom Scan"])
+    input_mode = st.sidebar.radio("Input Source:", ["📚 Clinical Database (Sample Cases)", "📤 Upload Custom Scan (.png, .jpg)"])
 
-    if input_mode == "Upload Custom Scan":
+    if input_mode.startswith("📤"):
         uploaded_file = st.sidebar.file_uploader("Upload fundus photograph (.png, .jpg)", type=["png", "jpg", "jpeg"])
         if uploaded_file is not None:
             file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
@@ -1581,9 +1581,9 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
     st.sidebar.subheader("📁 Bilateral Fundus Input (OD vs. OS)")
     bilateral_source = st.sidebar.radio(
         "Bilateral Input Source:",
-        ["Clinical Scenarios & Presets", "Upload Dual Scans (OD & OS)"]
+        ["📚 Clinical Scenarios & Presets (Sample Cases)", "📤 Upload Dual Scans (OD & OS)"]
     )
-    if bilateral_source == "Clinical Scenarios & Presets":
+    if bilateral_source.startswith("📚"):
         preset_choice = st.sidebar.selectbox(
             "Select Clinical Scenario / Preset:",
             [
@@ -1659,10 +1659,10 @@ else:
     st.sidebar.subheader("📁 Batch Ingestion Method")
     camp_source = st.sidebar.radio(
         "Ingestion Source:",
-        ["Load Clinical Camp Sample Batch (15 Cases)", "Upload Bulk Scans (Multi-Image Dropzone)"]
+        ["📚 Load Clinical Camp Sample Batch (15 Cases)", "📤 Upload Bulk Scans (Multi-Image Dropzone)"]
     )
     
-    if camp_source == "Load Clinical Camp Sample Batch (15 Cases)":
+    if camp_source.startswith("📚"):
         st.sidebar.caption("📁 Loads 15 verified clinical camp cases spanning Stages 0-4 from database.")
         if os.path.exists("sample_images"):
             # Load 3 cases from each of the 5 stages
@@ -1806,7 +1806,7 @@ if screening_mode == "Single Fundus Scan":
             st.error(f"🚨 **Screening Halted (Image Quality Failure):** {msg}")
             st.image(img_rgb, caption="Rejected Image — Blur or Illumination Artifacts Detected", width=380)
         else:
-            st.caption(f"📁 **Active Scan:** `{active_source_label}` &bull; Quality Heuristics: `Passed` (Blur: {blur_val:.1f}, Illum: {bright_val:.1f})")
+            st.caption(f"📁 **Active Scan:** `{active_source_label}` &bull; Quality Heuristics: `Passed` (Blur: {blur_val:.1f}, Illum: {bright_val:.1f}) &nbsp;|&nbsp; 💡 *To evaluate custom images, switch to **'📤 Upload Custom Scan'** in the sidebar.*")
             proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(
                 img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
             )
@@ -2058,7 +2058,7 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
             with r_col2:
                 st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected: ' + msg_os}", use_container_width=True)
         else:
-            st.caption(f"📁 **Active Bilateral Session:** OD `{od_source_label}` &bull; OS `{os_source_label}` &bull; Quality Heuristics: `Passed (OD & OS)`")
+            st.caption(f"📁 **Active Bilateral Session:** OD `{od_source_label}` &bull; OS `{os_source_label}` &bull; Quality Heuristics: `Passed (OD & OS)` &nbsp;|&nbsp; 💡 *To evaluate a new patient, switch to **'📤 Upload Dual Scans'** in the sidebar.*")
             # 2. Run Inference & Grad-CAM++ for both eyes
             proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(
                 img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
