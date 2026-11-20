@@ -155,3 +155,23 @@ def test_export_camp_archive_zip_endpoint(client, sample_stage_images):
         names = z.namelist()
         assert "camp_triage_manifest.csv" in names
         assert "camp_executive_summary.txt" in names
+
+def test_export_pdf_with_clinician_signoff_endpoint(client, sample_stage_images):
+    """Verifies POST /api/v1/report/pdf with clinician accreditation form fields."""
+    sample = sample_stage_images[1]
+    files = {"file": (sample["filename"], sample["bytes"], "image/png")}
+    data = {
+        "patient_name": "Dr. Verified Patient",
+        "age": 60,
+        "gender": "Male",
+        "duration_years": 10,
+        "hba1c": 7.9,
+        "location": "Hyderabad",
+        "clinician_name": "Dr. A. Sharma, MD (Retina)",
+        "clinician_reg_no": "MCI-RET-2018-9844"
+    }
+    response = client.post("/api/v1/report/pdf", files=files, data=data)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+    assert len(response.content) > 5000

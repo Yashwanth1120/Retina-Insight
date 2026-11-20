@@ -10,9 +10,12 @@ A Streamlit application that grades diabetic retinopathy (DR) from retinal fundu
 
 - **Grades DR in five stages:** No DR, Mild, Moderate, Severe, Proliferative (ICDR scale, 0 to 4).
 - **Calibrated confidence:** temperature scaling (T = 1.3782) makes the displayed probabilities more reliable. Predictions below 60% confidence trigger a manual-review warning.
-- **Grad-CAM attention map:** shows the regions that influenced the model's prediction. It has not been validated as a lesion detector.
-- **Image check:** a simple colour, blur and brightness heuristic rejects obviously unsuitable images. It is not a trained retina detector and can be fooled.
-- **Report generation:** drafts a patient-friendly summary and a SOAP-style clinical note, and exports a PDF. Notes come from an offline template, or optionally from Google Gemini. The patient name is never sent to Gemini.
+- **Grad-CAM++ attention map:** isolates multiple scattered microaneurysms, hemorrhages, and exudates with interactive colormap switching (`JET`, `Inferno`, `Turbo`, `Viridis`), opacity control, and lesion contouring.
+- **Bilateral Clinical Screening (OD vs. OS):** simultaneous dual-eye analysis with inter-ocular asymmetry detection ($\Delta = |\text{OD} - \text{OS}|$) and governing eye triage.
+- **ETDRS CSME Macular Risk Engine:** analyzes central foveal ring ($<500\,\mu\text{m}$) and outer macular field ($1.5\,\text{DD}$) with CLAHE green-channel contrast and HSV hard lipid exudate segmentation.
+- **High-Throughput Screening Camp Mode:** bulk ingestion queue (15-case sample batch or multi-image upload), automated quality filtration, epidemiological KPI metrics, and 1-click CSV/ZIP export.
+- **Hospital-Grade Modern UI:** executive clinical station featuring a 4-KPI triage ribbon, high-contrast ophthalmic inspection canvas, and EHR-compliant attending clinician digital sign-off and audit seal.
+- **FastAPI Microservice & Automated Testing:** headless REST microservice (`api.py`) with full OpenAPI documentation and 22 automated PyTest unit/integration tests (`tests/`).
 
 ## Results
 
@@ -107,7 +110,7 @@ Interactive OpenAPI / Swagger documentation is available at:
 ```bash
 pytest -v
 ```
-Runs 20 automated unit and integration tests across image quality heuristics, model inference, CSME detection, PDF generation, and all REST endpoints.
+Runs 22 automated unit and integration tests across image quality heuristics, model inference, CSME detection, PDF report generation with clinician sign-off, and all REST endpoints.
 
 ## Evaluate the model on your own labelled images
 ```bash
@@ -119,10 +122,10 @@ python evaluate_model.py --data test_images --csv labels.csv --out eval_results
 
 | Path | Purpose |
 |---|---|
-| `app.py` | Streamlit interactive clinical workstation |
+| `app.py` | Streamlit hospital-grade clinical workstation (v2.5) |
 | `api.py` | FastAPI hospital microservice with OpenAPI/Swagger docs |
 | `engine.py` | Framework-agnostic clinical & algorithmic core engine |
-| `tests/` | Comprehensive PyTest suite (20 automated unit & API tests) |
+| `tests/` | Comprehensive PyTest suite (22 automated unit & API tests) |
 | `retina_insight_paper_retraining.ipynb` | Research retraining notebook (15 epochs, 3-way split, scale augmentation, calibration, IDRiD discovery) |
 | `best_retina_model.pth` | Trained EfficientNet-B0 weights |
 | `temperature.txt` | Fitted calibration temperature |

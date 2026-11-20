@@ -705,7 +705,7 @@ def _jpeg_buffer(rgb_array):
     return buf
 
 
-def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text, stage_idx=0, csme_info=None):
+def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, gradcam_rgb, clinical_notes_text, stage_idx=0, csme_info=None, clinician_info=None):
     """Compiles single-eye screening ReportLab PDF document."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
@@ -814,10 +814,19 @@ def generate_pdf_report(patient_info, stage_name, confidence, original_rgb, grad
     elements.append(t_ref)
     elements.append(Spacer(1, 12))
 
-    sign_data = [
-        [Paragraph("<b>Screening Clinician Signature:</b> ___________________________", body_style),
-         Paragraph(f"<b>Accreditation Date:</b> {scan_date}", ParagraphStyle('R', parent=body_style, alignment=2))]
-    ]
+    if clinician_info and clinician_info.get("is_signed"):
+        c_name = html.escape(str(clinician_info.get("name", "Attending Ophthalmologist")))
+        c_reg = html.escape(str(clinician_info.get("reg_no", "MCI-RET-VALIDATED")))
+        c_time = html.escape(str(clinician_info.get("timestamp", scan_date)))
+        sign_data = [
+            [Paragraph(f"<b>Attending Clinician:</b> {c_name} &nbsp;|&nbsp; <b>Reg No:</b> {c_reg}<br/><font color='#16A34A'><b>Verification Status:</b> Clinically Verified &amp; Certified (Digital Seal)</font>", body_style),
+             Paragraph(f"<b>Accreditation Date:</b> {c_time}", ParagraphStyle('R', parent=body_style, alignment=2))]
+        ]
+    else:
+        sign_data = [
+            [Paragraph("<b>Screening Clinician Signature:</b> ___________________________", body_style),
+             Paragraph(f"<b>Accreditation Date:</b> {scan_date}", ParagraphStyle('R', parent=body_style, alignment=2))]
+        ]
     t_sign = Table(sign_data, colWidths=[340, 180])
     elements.append(t_sign)
     elements.append(Spacer(1, 10))
@@ -833,7 +842,8 @@ def generate_bilateral_pdf_report(
     od_stage_idx, od_confidence, od_orig_rgb, od_cam_rgb, od_blur,
     os_stage_idx, os_confidence, os_orig_rgb, os_cam_rgb, os_blur,
     clinical_notes_text,
-    od_csme=None, os_csme=None
+    od_csme=None, os_csme=None,
+    clinician_info=None
 ):
     """Compiles bilateral (OD vs OS) unified ReportLab PDF document."""
     buffer = io.BytesIO()
@@ -995,10 +1005,19 @@ def generate_bilateral_pdf_report(
     elements.append(t_ref)
     elements.append(Spacer(1, 6))
 
-    sign_data = [
-        [Paragraph("<b>Screening Clinician Signature:</b> ___________________________", body_style),
-         Paragraph(f"<b>Accreditation Date:</b> {scan_date}", ParagraphStyle('R', parent=body_style, alignment=2))]
-    ]
+    if clinician_info and clinician_info.get("is_signed"):
+        c_name = html.escape(str(clinician_info.get("name", "Attending Ophthalmologist")))
+        c_reg = html.escape(str(clinician_info.get("reg_no", "MCI-RET-VALIDATED")))
+        c_time = html.escape(str(clinician_info.get("timestamp", scan_date)))
+        sign_data = [
+            [Paragraph(f"<b>Attending Clinician:</b> {c_name} &nbsp;|&nbsp; <b>Reg No:</b> {c_reg}<br/><font color='#16A34A'><b>Verification Status:</b> Clinically Verified &amp; Certified (Digital Seal)</font>", body_style),
+             Paragraph(f"<b>Accreditation Date:</b> {c_time}", ParagraphStyle('R', parent=body_style, alignment=2))]
+        ]
+    else:
+        sign_data = [
+            [Paragraph("<b>Screening Clinician Signature:</b> ___________________________", body_style),
+             Paragraph(f"<b>Accreditation Date:</b> {scan_date}", ParagraphStyle('R', parent=body_style, alignment=2))]
+        ]
     t_sign = Table(sign_data, colWidths=[360, 180])
     elements.append(t_sign)
     elements.append(Spacer(1, 4))

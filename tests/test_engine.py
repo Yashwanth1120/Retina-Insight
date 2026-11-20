@@ -143,6 +143,55 @@ def test_bilateral_pdf_compilation(mock_patient_info):
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 5000
 
+def test_pdf_report_with_clinician_signoff(mock_patient_info):
+    """Verifies single and bilateral PDF compilation with attending clinician digital accreditation seal."""
+    orig_rgb = np.full((300, 300, 3), 128, dtype=np.uint8)
+    cam_rgb = np.full((300, 300, 3), 160, dtype=np.uint8)
+    notes = "### Summary\nTest notes."
+    clinician_meta = {
+        "name": "Dr. A. Sharma, MD (Retina)",
+        "reg_no": "MCI-RET-2018-9844",
+        "is_signed": True,
+        "timestamp": "20 Nov 2026, 10:15 AM",
+        "notes": notes,
+        "cert_hash": "CERT-84729103"
+    }
+
+    # Test single PDF with clinician seal
+    buf_single = generate_pdf_report(
+        patient_info=mock_patient_info,
+        stage_name="Stage 3: Severe NPDR",
+        confidence=92.5,
+        original_rgb=orig_rgb,
+        gradcam_rgb=cam_rgb,
+        clinical_notes_text=notes,
+        stage_idx=3,
+        clinician_info=clinician_meta
+    )
+    bytes_single = buf_single.getvalue()
+    assert bytes_single.startswith(b"%PDF")
+    assert len(bytes_single) > 5000
+
+    # Test bilateral PDF with clinician seal
+    buf_bi = generate_bilateral_pdf_report(
+        patient_info=mock_patient_info,
+        od_stage_idx=3,
+        od_confidence=92.5,
+        od_orig_rgb=orig_rgb,
+        od_cam_rgb=cam_rgb,
+        od_blur=82.0,
+        os_stage_idx=2,
+        os_confidence=78.0,
+        os_orig_rgb=orig_rgb,
+        os_cam_rgb=cam_rgb,
+        os_blur=80.0,
+        clinical_notes_text=notes,
+        clinician_info=clinician_meta
+    )
+    bytes_bi = buf_bi.getvalue()
+    assert bytes_bi.startswith(b"%PDF")
+    assert len(bytes_bi) > 5000
+
 def test_camp_batch_archive():
     """Verifies batch CSV and ZIP package generation."""
     records = [

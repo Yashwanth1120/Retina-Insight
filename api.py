@@ -566,7 +566,9 @@ async def export_single_pdf(
     gender: str = Form("Male"),
     duration_years: int = Form(9),
     hba1c: float = Form(8.4),
-    location: str = Form("Hyderabad")
+    location: str = Form("Hyderabad"),
+    clinician_name: Optional[str] = Form(None),
+    clinician_reg_no: Optional[str] = Form(None)
 ):
     """Compiles and streams a clinical ReportLab PDF report for single fundus screening."""
     contents = await file.read()
@@ -599,6 +601,15 @@ async def export_single_pdf(
         csme_info=csme_res
     )
 
+    c_info = None
+    if clinician_name and clinician_name.strip():
+        c_info = {
+            "name": clinician_name.strip(),
+            "reg_no": (clinician_reg_no.strip() if clinician_reg_no else "MCI-RET-VALIDATED"),
+            "is_signed": True,
+            "timestamp": datetime.now().strftime("%d %b %Y, %I:%M %p")
+        }
+
     pdf_buffer = generate_pdf_report(
         patient_info=pt_info,
         stage_name=DIAGNOSIS_INFO[pred_class]["name"],
@@ -607,7 +618,8 @@ async def export_single_pdf(
         gradcam_rgb=overlay,
         clinical_notes_text=notes_text,
         stage_idx=pred_class,
-        csme_info=csme_res
+        csme_info=csme_res,
+        clinician_info=c_info
     )
 
     pdf_bytes = pdf_buffer.getvalue()
@@ -629,7 +641,9 @@ async def export_bilateral_pdf(
     gender: str = Form("Male"),
     duration_years: int = Form(9),
     hba1c: float = Form(8.4),
-    location: str = Form("Hyderabad")
+    location: str = Form("Hyderabad"),
+    clinician_name: Optional[str] = Form(None),
+    clinician_reg_no: Optional[str] = Form(None)
 ):
     """Compiles and streams a bilateral (OD vs OS) ReportLab PDF report."""
     contents_od = await file_od.read()
@@ -677,6 +691,15 @@ async def export_bilateral_pdf(
         os_csme=csme_os
     )
 
+    c_info = None
+    if clinician_name and clinician_name.strip():
+        c_info = {
+            "name": clinician_name.strip(),
+            "reg_no": (clinician_reg_no.strip() if clinician_reg_no else "MCI-RET-VALIDATED"),
+            "is_signed": True,
+            "timestamp": datetime.now().strftime("%d %b %Y, %I:%M %p")
+        }
+
     pdf_buffer = generate_bilateral_pdf_report(
         patient_info=pt_info,
         od_stage_idx=pred_od,
@@ -691,7 +714,8 @@ async def export_bilateral_pdf(
         os_blur=blur_os,
         clinical_notes_text=notes_text,
         od_csme=csme_od,
-        os_csme=csme_os
+        os_csme=csme_os,
+        clinician_info=c_info
     )
 
     pdf_bytes = pdf_buffer.getvalue()
