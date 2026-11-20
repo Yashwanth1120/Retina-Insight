@@ -217,7 +217,8 @@ def assess_image_quality(image, blur_threshold=5.0, min_brightness=20.0, max_bri
 def fast_ben_graham(img_bgr, target_size=256):
     """Ben Graham preprocessing filter (Gaussian subtraction) matching model training."""
     img_bgr = cv2.resize(img_bgr, (target_size, target_size))
-    blurred = cv2.GaussianBlur(img_bgr, (0, 0), 10)
+    sigma = max(5, int(10 * (target_size / 256.0)))
+    blurred = cv2.GaussianBlur(img_bgr, (0, 0), sigma)
     enhanced = cv2.addWeighted(img_bgr, 4, blurred, -4, 128)
     return enhanced
 
@@ -393,27 +394,125 @@ def detect_macular_edema_risk(img_bgr, heatmap=None, dr_stage=0):
     }
 
 
-# ----------------- MODEL LOADER & INFERENCE ENGINE -----------------
+# ----------------- MODERN MULTI-BACKBONE ARCHITECTURES & MODEL FACTORY -----------------
+SUPPORTED_BACKBONES = {
+    "efficientnet_b0": {
+        "name": "EfficientNet-B0 (Calibrated Baseline)",
+        "default_resolution": 256,
+        "params": "5.3M",
+        "weights_file": "best_retina_model.pth",
+        "architecture_family": "EfficientNet (Tan & Le)",
+        "description": "Standard 256x256 medical CNN with 100% sample benchmark validation."
+    },
+    "convnext_tiny": {
+        "name": "ConvNeXt-Tiny (High-Resolution Pure-ConvNet)",
+        "default_resolution": 512,
+        "params": "28.6M",
+        "weights_file": "best_convnext_tiny_512.pth",
+        "architecture_family": "ConvNeXt (Liu et al.)",
+        "description": "Modern 7x7 depthwise convolutions with 4x higher microaneurysm resolution."
+    },
+    "efficientnet_b4": {
+        "name": "EfficientNet-B4 (Compound Scaling Medical Architecture)",
+        "default_resolution": 380,
+        "params": "19.3M",
+        "weights_file": "best_efficientnet_b4_380.pth",
+        "architecture_family": "EfficientNet Compound Scaling",
+        "description": "Balanced depth, width and resolution compound scaling for ophthalmic pathology."
+    },
+    "swin_t": {
+        "name": "Swin Transformer Tiny (Shifted-Window Self-Attention)",
+        "default_resolution": 256,
+        "params": "28.3M",
+        "weights_file": "best_swin_t_256.pth",
+        "architecture_family": "Vision Transformer (Liu et al.)",
+        "description": "Hierarchical vision transformer modeling global retinal vascular topology."
+    }
+}
+
 _PREPROCESS = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-def load_inference_system(model_path="best_retina_model.pth", temp_path="temperature.txt"):
-    """Loads PyTorch EfficientNet-B0 model weights, Grad-CAM++, and temperature calibration."""
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"{model_path} was not found.")
 
+def build_retina_model(backbone="efficientnet_b0", num_classes=5):
+    """Instantiates a deep neural network model and identifies the target feature layer for Grad-CAM++."""
+    b_key = backbone.lower().replace("-", "_")
+
+    if b_key in ["convnext_tiny", "convnext"]:
+        model = models.convnext_tiny(weights=None)
+        in_feat = model.classifier[2].in_features
+        model.classifier[2] = nn.Sequential(
+            nn.Dropout(p=0.35),
+            nn.Linear(in_feat, num_classes)
+        )
+        target_layer = model.features[-1]
+    elif b_key in ["efficientnet_b4", "effnet_b4"]:
+        model = models.efficientnet_b4(weights=None)
+        in_feat = model.classifier[1].in_features
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=0.35),
+            nn.Linear(in_feat, num_classes)
+        )
+        target_layer = model.features[-1]
+    elif b_key in ["swin_t", "swin_tiny", "swin"]:
+        model = models.swin_t(weights=None)
+        in_feat = model.head.in_features
+        model.head = nn.Sequential(
+            nn.Dropout(p=0.35),
+            nn.Linear(in_feat, num_classes)
+        )
+        target_layer = model.features[-1]
+    elif b_key in ["resnet50", "resnet_50"]:
+        model = models.resnet50(weights=None)
+        in_feat = model.fc.in_features
+        model.fc = nn.Sequential(
+            nn.Dropout(p=0.35),
+            nn.Linear(in_feat, num_classes)
+        )
+        target_layer = model.layer4[-1]
+    else:  # Default: EfficientNet-B0
+        model = models.efficientnet_b0(weights=None)
+        in_feat = model.classifier[1].in_features
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=0.3),
+            nn.Linear(in_feat, num_classes)
+        )
+        target_layer = model.features[-1]
+
+    return model, target_layer
+
+
+def load_inference_system(model_path=None, temp_path="temperature.txt", backbone="efficientnet_b0"):
+    """
+    Loads PyTorch model weights, Grad-CAM++, and temperature calibration.
+    Supports multi-backbone architectures (EfficientNet-B0, ConvNeXt-Tiny, EfficientNet-B4, Swin-T).
+    """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = models.efficientnet_b0(weights=None)
-    in_features = model.classifier[1].in_features
-    model.classifier = nn.Sequential(
-        nn.Dropout(p=0.3),
-        nn.Linear(in_features, 5)
-    )
+    b_info = SUPPORTED_BACKBONES.get(backbone, SUPPORTED_BACKBONES["efficientnet_b0"])
 
-    state = torch.load(model_path, map_location=device, weights_only=True)
-    model.load_state_dict(state)
+    actual_backbone = backbone
+    if model_path is not None and os.path.exists(model_path) and model_path != "best_retina_model.pth":
+        chosen_path = model_path
+    elif os.path.exists(b_info.get("weights_file", "")):
+        chosen_path = b_info.get("weights_file")
+    elif os.path.exists("best_retina_model.pth"):
+        chosen_path = "best_retina_model.pth"
+        actual_backbone = "efficientnet_b0"
+    else:
+        raise FileNotFoundError(f"Neither {b_info.get('weights_file')} nor default best_retina_model.pth was found.")
+
+    model, target_layer = build_retina_model(backbone=actual_backbone, num_classes=5)
+
+    checkpoint = torch.load(chosen_path, map_location=device, weights_only=False)
+    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["state_dict"])
+    elif isinstance(checkpoint, dict) and "model" in checkpoint:
+        model.load_state_dict(checkpoint["model"])
+    else:
+        model.load_state_dict(checkpoint)
+
     model = model.to(device)
     model.eval()
 
@@ -429,17 +528,18 @@ def load_inference_system(model_path="best_retina_model.pth", temp_path="tempera
         except ValueError:
             pass
 
-    cam = GradCAMPlusPlus(model, model.features[-1])
+    cam = GradCAMPlusPlus(model, target_layer)
     return model, cam, temp, temp_from_file, device
 
 
-def run_inference_engine(model, grad_cam, device, img_bgr, temp=DEFAULT_TEMPERATURE, use_tta=True, multi_scale=False):
+def run_inference_engine(model, grad_cam, device, img_bgr, temp=DEFAULT_TEMPERATURE, use_tta=True, multi_scale=False, target_size=None):
     """
     Executes deep neural network inference on retinal fundus image.
-    Supports 4-fold TTA (rotations/flips) and Multi-Scale crop ensemble.
+    Supports resolution auto-adaptation (256x256, 380x380, 512x512), 4-fold TTA and Multi-Scale crop ensemble.
     Returns: (proc_rgb, calibrated_probs, pred_class, heatmap)
     """
-    proc_bgr = fast_ben_graham(img_bgr, target_size=256)
+    res = target_size if target_size is not None else 256
+    proc_bgr = fast_ben_graham(img_bgr, target_size=res)
     proc_rgb = cv2.cvtColor(proc_bgr, cv2.COLOR_BGR2RGB)
     tensor_img = _PREPROCESS(Image.fromarray(proc_rgb)).unsqueeze(0).to(device)
 
@@ -456,7 +556,7 @@ def run_inference_engine(model, grad_cam, device, img_bgr, temp=DEFAULT_TEMPERAT
             h, w = proc_rgb.shape[:2]
             margin = int(h * 0.075)
             cropped = proc_rgb[margin:h-margin, margin:w-margin]
-            cropped_resized = cv2.resize(cropped, (256, 256))
+            cropped_resized = cv2.resize(cropped, (res, res))
             tta_tensors.append(_PREPROCESS(Image.fromarray(cropped_resized)).to(device))
             tta_tensors.append(_PREPROCESS(Image.fromarray(np.fliplr(cropped_resized).copy())).to(device))
 

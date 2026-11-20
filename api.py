@@ -25,6 +25,7 @@ from engine import (
     LOW_CONFIDENCE_THRESHOLD,
     BENCHMARKS,
     EXTERNAL,
+    SUPPORTED_BACKBONES,
     CLINICAL_PROTOCOLS,
     DIAGNOSIS_INFO,
     CSME_INFO,
@@ -49,16 +50,32 @@ async def lifespan(app: FastAPI):
     # Startup: Load PyTorch model weights, Grad-CAM++, and temperature
     model, grad_cam, temp, temp_from_file, device = load_inference_system(
         model_path="best_retina_model.pth",
-        temp_path="temperature.txt"
+        temp_path="temperature.txt",
+        backbone="efficientnet_b0"
     )
     SYSTEM_STATE["model"] = model
     SYSTEM_STATE["grad_cam"] = grad_cam
     SYSTEM_STATE["temperature"] = temp
     SYSTEM_STATE["device"] = device
     SYSTEM_STATE["temp_from_file"] = temp_from_file
+    SYSTEM_STATE["models_cache"] = {
+        "efficientnet_b0": (model, grad_cam)
+    }
     yield
     # Shutdown
     SYSTEM_STATE.clear()
+
+def get_backbone_model(backbone_name: str = "efficientnet_b0"):
+    key = backbone_name if backbone_name in SUPPORTED_BACKBONES else "efficientnet_b0"
+    if "models_cache" not in SYSTEM_STATE:
+        SYSTEM_STATE["models_cache"] = {}
+    if key not in SYSTEM_STATE["models_cache"]:
+        m, c, _, _, _ = load_inference_system(backbone=key)
+        SYSTEM_STATE["models_cache"][key] = (m, c)
+    cur_model, cur_cam = SYSTEM_STATE["models_cache"][key]
+    b_info = SUPPORTED_BACKBONES[key]
+    target_size = b_info.get("default_resolution", 256)
+    return cur_model, cur_cam, target_size, key
 
 app = FastAPI(
     title="Retina Insight — Clinical Decision Support API",
@@ -88,12 +105,14 @@ class HealthCheckResponse(BaseModel):
     calibration_temperature: float = Field(..., examples=[1.3782])
     uptime_seconds: float = Field(..., examples=[120.4])
     version: str = Field(..., examples=["2.5.0"])
+    supported_architectures: Optional[List[str]] = None
 
 class SystemBenchmarksResponse(BaseModel):
     aptos_validation_split: dict
     idrid_external_test: dict
     calibration_temperature: float
     confidence_alert_threshold: float
+    supported_backbones: Optional[dict] = None
 
 class QualityReport(BaseModel):
     is_valid: bool = Field(..., examples=[True])
@@ -228,7 +247,8 @@ async def health_check():
         device=str(device),
         calibration_temperature=float(temp),
         uptime_seconds=round(time.time() - START_TIME, 2),
-        version="2.5.0"
+        version="2.5.0",
+        supported_architectures=list(SUPPORTED_BACKBONES.keys())
     )
 
 @app.get("/api/v1/benchmarks", response_model=SystemBenchmarksResponse, summary="Model Benchmarks & Calibration", tags=["Clinical"])
@@ -238,13 +258,15 @@ async def get_benchmarks():
         aptos_validation_split=BENCHMARKS,
         idrid_external_test=EXTERNAL,
         calibration_temperature=SYSTEM_STATE.get("temperature", DEFAULT_TEMPERATURE),
-        confidence_alert_threshold=LOW_CONFIDENCE_THRESHOLD
+        confidence_alert_threshold=LOW_CONFIDENCE_THRESHOLD,
+        supported_backbones=SUPPORTED_BACKBONES
     )
 
 @app.post("/api/v1/screen", response_model=ScreenResult, summary="Single Retinal Fundus Screening", tags=["Clinical"])
 async def screen_single_fundus(
     file: UploadFile = File(..., description="Fundus photograph image (.png, .jpg, .jpeg)"),
     scan_id: str = Query("SCAN-001", description="Unique clinic / study accession ID"),
+    backbone: str = Query("efficientnet_b0", description="Backbone architecture (efficientnet_b0, convnext_tiny, efficientnet_b4, swin_t)"),
     use_tta: bool = Query(True, description="Enable 4-fold rotational/flip Test-Time Augmentation"),
     multi_scale: bool = Query(False, description="Enable multi-scale center zoom crop ensemble"),
     include_overlay: bool = Query(False, description="Return base64-encoded Grad-CAM++ JPEG overlay"),
@@ -268,13 +290,12 @@ async def screen_single_fundus(
             detail=f"Image failed automated quality check: {q_msg} (Blur: {blur_score:.1f}, Brightness: {brightness:.1f})"
         )
 
-    model = SYSTEM_STATE["model"]
-    grad_cam = SYSTEM_STATE["grad_cam"]
+    model, grad_cam, target_size, _ = get_backbone_model(backbone)
     device = SYSTEM_STATE["device"]
     temp = SYSTEM_STATE["temperature"]
 
     proc_rgb, probs, pred_class, heatmap = run_inference_engine(
-        model, grad_cam, device, img_bgr, temp=temp, use_tta=use_tta, multi_scale=multi_scale
+        model, grad_cam, device, img_bgr, temp=temp, use_tta=use_tta, multi_scale=multi_scale, target_size=target_size
     )
     conf = float(probs[pred_class] * 100)
     csme_res = detect_macular_edema_risk(img_bgr, heatmap=heatmap, dr_stage=pred_class)
@@ -339,6 +360,7 @@ async def screen_single_fundus(
 async def screen_bilateral(
     file_od: UploadFile = File(..., description="Right Eye (OD — Oculus Dexter) fundus photograph"),
     file_os: UploadFile = File(..., description="Left Eye (OS — Oculus Sinister) fundus photograph"),
+    backbone: str = Query("efficientnet_b0", description="Backbone architecture (efficientnet_b0, convnext_tiny, efficientnet_b4, swin_t)"),
     use_tta: bool = Query(True, description="Enable 4-fold Test-Time Augmentation"),
     multi_scale: bool = Query(False, description="Enable multi-scale center crop ensemble"),
     include_overlay: bool = Query(False, description="Return base64-encoded Grad-CAM++ JPEG overlays")
@@ -365,13 +387,16 @@ async def screen_bilateral(
             detail=f"Bilateral quality failure. OD: {msg_od} | OS: {msg_os}"
         )
 
-    model = SYSTEM_STATE["model"]
-    grad_cam = SYSTEM_STATE["grad_cam"]
+    model, grad_cam, target_size, _ = get_backbone_model(backbone)
     device = SYSTEM_STATE["device"]
     temp = SYSTEM_STATE["temperature"]
 
-    proc_od, probs_od, pred_od, cam_od = run_inference_engine(model, grad_cam, device, img_bgr_od, temp=temp, use_tta=use_tta, multi_scale=multi_scale)
-    proc_os, probs_os, pred_os, cam_os = run_inference_engine(model, grad_cam, device, img_bgr_os, temp=temp, use_tta=use_tta, multi_scale=multi_scale)
+    proc_od, probs_od, pred_od, cam_od = run_inference_engine(
+        model, grad_cam, device, img_bgr_od, temp=temp, use_tta=use_tta, multi_scale=multi_scale, target_size=target_size
+    )
+    proc_os, probs_os, pred_os, cam_os = run_inference_engine(
+        model, grad_cam, device, img_bgr_os, temp=temp, use_tta=use_tta, multi_scale=multi_scale, target_size=target_size
+    )
 
     conf_od = float(probs_od[pred_od] * 100)
     conf_os = float(probs_os[pred_os] * 100)

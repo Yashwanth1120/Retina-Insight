@@ -15,7 +15,10 @@ from engine import (
     generate_pdf_report,
     generate_bilateral_pdf_report,
     generate_camp_batch_archive,
-    COLORMAP_OPTIONS
+    COLORMAP_OPTIONS,
+    SUPPORTED_BACKBONES,
+    build_retina_model,
+    load_inference_system
 )
 
 def test_quality_heuristic_valid(sample_stage_images):
@@ -217,3 +220,18 @@ def test_camp_batch_archive():
         assert "camp_triage_manifest.csv" in names
         assert "camp_executive_summary.txt" in names
         assert "gradcam_overlays/CAMP-001_gradcam.jpg" in names
+
+def test_build_retina_model_architectures():
+    """Verifies model factory instantiates all supported modern backbones."""
+    for b_key in ["efficientnet_b0", "convnext_tiny", "efficientnet_b4", "swin_t"]:
+        assert b_key in SUPPORTED_BACKBONES
+        model, target_layer = build_retina_model(backbone=b_key, num_classes=5)
+        assert model is not None
+        assert target_layer is not None
+
+def test_load_inference_system_fallback():
+    """Verifies load_inference_system gracefully falls back to baseline weights when dedicated weights are absent."""
+    model, cam, temp, temp_from_file, dev = load_inference_system(backbone="convnext_tiny")
+    assert model is not None
+    assert cam is not None
+    assert temp > 0

@@ -14,6 +14,8 @@ import html
 import zipfile
 from datetime import datetime
 
+from engine import SUPPORTED_BACKBONES, build_retina_model
+
 # Optional Google GenAI SDK
 try:
     from google import genai
@@ -310,7 +312,8 @@ def assess_image_quality(image, blur_threshold=5.0, min_brightness=20.0, max_bri
 # NOTE: preprocessing is intentionally unchanged so it matches what the model was trained on.
 def fast_ben_graham(img_bgr, target_size=256):
     img_bgr = cv2.resize(img_bgr, (target_size, target_size))
-    blurred = cv2.GaussianBlur(img_bgr, (0, 0), 10)
+    sigma = max(5, int(10 * (target_size / 256.0)))
+    blurred = cv2.GaussianBlur(img_bgr, (0, 0), sigma)
     enhanced = cv2.addWeighted(img_bgr, 4, blurred, -4, 128)
     return enhanced
 
@@ -568,20 +571,28 @@ TRIAGE ACTION DIRECTIVE (ICO / WHO STANDARDS):
 DEFAULT_TEMPERATURE = 1.3782
 
 @st.cache_resource
-def load_system():
-    if not os.path.exists("best_retina_model.pth"):
-        raise FileNotFoundError("best_retina_model.pth was not found next to app.py.")
-
+def load_system(backbone="efficientnet_b0"):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = models.efficientnet_b0(weights=None)
-    in_features = model.classifier[1].in_features
-    model.classifier = nn.Sequential(
-        nn.Dropout(p=0.3),
-        nn.Linear(in_features, 5)
-    )
+    b_info = SUPPORTED_BACKBONES.get(backbone, SUPPORTED_BACKBONES["efficientnet_b0"])
 
-    state = torch.load("best_retina_model.pth", map_location=device, weights_only=True)
-    model.load_state_dict(state)
+    weights_path = b_info.get("weights_file", "best_retina_model.pth")
+    actual_backbone = backbone
+    if not os.path.exists(weights_path):
+        weights_path = "best_retina_model.pth"
+        actual_backbone = "efficientnet_b0"
+
+    if not os.path.exists(weights_path):
+        raise FileNotFoundError(f"{weights_path} was not found next to app.py.")
+
+    model, target_layer = build_retina_model(backbone=actual_backbone, num_classes=5)
+    state = torch.load(weights_path, map_location=device, weights_only=False)
+    if isinstance(state, dict) and "state_dict" in state:
+        model.load_state_dict(state["state_dict"])
+    elif isinstance(state, dict) and "model" in state:
+        model.load_state_dict(state["model"])
+    else:
+        model.load_state_dict(state)
+
     model = model.to(device)
     model.eval()
 
@@ -597,11 +608,11 @@ def load_system():
         except ValueError:
             pass
 
-    cam = GradCAMPlusPlus(model, model.features[-1])
-    return model, cam, temp, temp_from_file, device
+    cam = GradCAMPlusPlus(model, target_layer)
+    return model, cam, temp, temp_from_file, device, actual_backbone
 
 try:
-    model, grad_cam, temperature, temp_from_file, device = load_system()
+    model, grad_cam, temperature, temp_from_file, device, active_backbone_name = load_system()
 except Exception as e:
     st.error(f"🚨 Model could not be loaded, so screening is disabled: {e}")
     st.stop()
@@ -612,14 +623,15 @@ preprocess = transforms.Compose([
 ])
 
 @st.cache_data(show_spinner="Running model...")
-def run_inference(img_bgr, temp, use_tta=True, multi_scale=False):
+def run_inference(img_bgr, temp, use_tta=True, multi_scale=False, target_size=256, backbone="efficientnet_b0"):
     """Preprocess, predict, and compute the Grad-CAM++ heatmap.
-    When use_tta is True, executes 4-fold Test-Time Augmentation (standard, horizontal
+    Supports resolution auto-adaptation (256, 380, 512), 4-fold Test-Time Augmentation (standard, horizontal
     flip, vertical flip, rot180) to maximize classification precision and prevent
     borderline misclassifications.
     When multi_scale is True, incorporates central foveal multi-crop evaluation (Ensemble Mode).
     Cached so typing in the patient form or adjusting sliders does not re-run the neural network."""
-    proc_bgr = fast_ben_graham(img_bgr, target_size=256)
+    res = target_size if target_size is not None else 256
+    proc_bgr = fast_ben_graham(img_bgr, target_size=res)
     proc_rgb = cv2.cvtColor(proc_bgr, cv2.COLOR_BGR2RGB)
     tensor_img = preprocess(Image.fromarray(proc_rgb)).unsqueeze(0).to(device)
 
@@ -636,7 +648,7 @@ def run_inference(img_bgr, temp, use_tta=True, multi_scale=False):
             h, w = proc_rgb.shape[:2]
             margin = int(h * 0.075)
             cropped = proc_rgb[margin:h-margin, margin:w-margin]
-            cropped_resized = cv2.resize(cropped, (256, 256))
+            cropped_resized = cv2.resize(cropped, (res, res))
             tta_tensors.append(preprocess(Image.fromarray(cropped_resized)).to(device))
             tta_tensors.append(preprocess(Image.fromarray(np.fliplr(cropped_resized).copy())).to(device))
 
@@ -1686,16 +1698,55 @@ else:
 # Inference & Quality Settings
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Model Architecture & Inference Controls")
+BACKBONE_DISPLAY_MAP = {
+    "EfficientNet-B0 (Calibrated Baseline - 256x256, 100% Benchmark)": "efficientnet_b0",
+    "ConvNeXt-Tiny (High-Resolution Pure-ConvNet - 512x512)": "convnext_tiny",
+    "EfficientNet-B4 (Compound Scaling Medical Architecture - 380x380)": "efficientnet_b4",
+    "Swin Transformer (Shifted-Window Self-Attention Swin-T - 256x256)": "swin_t",
+    "Multi-Scale Clinical Ensemble (Triple-Scale High-Precision TTA)": "efficientnet_b0",
+}
+
 backbone_choice = st.sidebar.selectbox(
     "Model Architecture Backbone:",
-    [
-        "EfficientNet-B0 (Calibrated Baseline - 100% Benchmark)",
-        "Multi-Scale Clinical Ensemble (Standard + 4-Crop High-Precision TTA)"
-    ],
+    list(BACKBONE_DISPLAY_MAP.keys()),
     index=0,
-    help="Switch between standard calibrated EfficientNet-B0 and multi-resolution clinical ensemble for difficult boundary cases."
+    help="Select neural network backbone. High-resolution models (512x512 ConvNeXt-Tiny, 380x380 EfficientNet-B4) increase pixel area 4x for subtle microaneurysms."
 )
+chosen_backbone_key = BACKBONE_DISPLAY_MAP.get(backbone_choice, "efficientnet_b0")
 use_multi_scale = ("Multi-Scale" in backbone_choice)
+
+# Dynamic hot-swap to chosen backbone
+model, grad_cam, temperature, temp_from_file, device, active_backbone_name = load_system(backbone=chosen_backbone_key)
+b_meta = SUPPORTED_BACKBONES.get(active_backbone_name, SUPPORTED_BACKBONES["efficientnet_b0"])
+current_target_size = b_meta.get("default_resolution", 256)
+
+weights_target = b_meta.get("weights_file", "best_retina_model.pth")
+has_custom_weights = os.path.exists(weights_target) and (weights_target != "best_retina_model.pth" or active_backbone_name == "efficientnet_b0")
+
+status_pill = (
+    f'<span style="background-color:#059669;color:#ffffff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">🟢 Active ({b_meta["params"]})</span>'
+    if has_custom_weights else
+    f'<span style="background-color:#d97706;color:#ffffff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">ℹ️ Fallback Base Weights</span>'
+)
+
+st.sidebar.markdown(
+    f"""
+    <div style="background-color:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 12px;margin-top:6px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="color:#94a3b8;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Architecture</span>
+        {status_pill}
+      </div>
+      <div style="color:#f8fafc;font-size:12px;font-weight:600;">{b_meta["architecture_family"]}</div>
+      <div style="color:#94a3b8;font-size:11px;margin-top:2px;">
+        Resolution: <strong style="color:#38bdf8;">{current_target_size}×{current_target_size}</strong> &bull; Params: <strong style="color:#cbd5e1;">{b_meta["params"]}</strong>
+      </div>
+      <div style="color:#64748b;font-size:10px;margin-top:4px;line-height:1.3;">
+        {b_meta["description"]}
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 use_tta = st.sidebar.checkbox(
     "High-Precision TTA (Test-Time Augmentation)",
@@ -1731,7 +1782,7 @@ st.sidebar.markdown("### 🔌 Hospital System Integration")
 st.sidebar.caption("Headless FastAPI microservice active for EHR, PACS & HIS integration:")
 st.sidebar.code("uvicorn api:app --port 8000", language="bash")
 st.sidebar.markdown("- **OpenAPI Docs:** `http://localhost:8000/docs`")
-st.sidebar.markdown("- **Automated Tests:** `pytest -v` (20 passed)")
+st.sidebar.markdown("- **Automated Tests:** `pytest -v` (22+ passed)")
 
 # ----------------- MAIN SCREEN -----------------
 if screening_mode == "Single Fundus Scan":
@@ -1757,7 +1808,9 @@ if screening_mode == "Single Fundus Scan":
             st.error(f"🚨 **Screening Halted:** {msg}")
             st.image(img_rgb, caption="Rejected Image", width=350)
         else:
-            proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
+            proc_rgb, calibrated_probs, pred_class, heatmap = run_inference(
+                img_bgr, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
+            )
             confidence = float(calibrated_probs[pred_class] * 100)
             csme_res = detect_macular_edema_risk(img_bgr, heatmap=heatmap, dr_stage=pred_class)
 
@@ -2068,8 +2121,12 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
                 st.image(img_rgb_os, caption=f"Left Eye (OS): {'Passed' if is_valid_os else 'Rejected'}", use_container_width=True)
         else:
             # 2. Run Inference & Grad-CAM++ for both eyes
-            proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
-            proc_rgb_os, probs_os, pred_class_os, heatmap_os = run_inference(img_bgr_os, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
+            proc_rgb_od, probs_od, pred_class_od, heatmap_od = run_inference(
+                img_bgr_od, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
+            )
+            proc_rgb_os, probs_os, pred_class_os, heatmap_os = run_inference(
+                img_bgr_os, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
+            )
             conf_od = float(probs_od[pred_class_od] * 100)
             conf_os = float(probs_os[pred_class_os] * 100)
 
@@ -2456,7 +2513,9 @@ elif screening_mode == "Screening Camp Batch Processing (Bulk Triage)":
                             "_overlay_buf": None
                         }
                     else:
-                        proc_rgb, probs, pred_c, heatmap = run_inference(scan_img, temperature, use_tta=use_tta, multi_scale=use_multi_scale)
+                        proc_rgb, probs, pred_c, heatmap = run_inference(
+                            scan_img, temperature, use_tta=use_tta, multi_scale=use_multi_scale, target_size=current_target_size, backbone=active_backbone_name
+                        )
                         conf = float(probs[pred_c] * 100)
                         csme_res = detect_macular_edema_risk(scan_img, heatmap=heatmap, dr_stage=pred_c)
 

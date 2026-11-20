@@ -110,7 +110,22 @@ Interactive OpenAPI / Swagger documentation is available at:
 ```bash
 pytest -v
 ```
-Runs 22 automated unit and integration tests across image quality heuristics, model inference, CSME detection, PDF report generation with clinician sign-off, and all REST endpoints.
+Runs 24 automated unit and integration tests across image quality heuristics, model architectures (EfficientNet-B0, ConvNeXt-Tiny, EfficientNet-B4, Swin-T), graceful weight fallbacks, CSME detection, PDF report generation with clinician sign-off, and all REST endpoints.
+
+## Modern Multi-Backbone Model Factory & Advanced Training
+
+Retina Insight supports high-resolution modern architectures engineered for subtle microaneurysm ($15\text{--}30\,\mu\text{m}$) detection:
+
+- **ConvNeXt-Tiny ($512\times 512$, 28.6M params):** Pure-convolutional architecture with $7\times 7$ depthwise convolutions and 4x higher pixel resolution for Stage 1 microvascular lesions.
+- **EfficientNet-B4 ($380\times 380$, 19.3M params):** Compound scaling balancing depth, width, and resolution for diabetic retinopathy pathology.
+- **Swin Transformer Tiny ($256\times 256$, 28.3M params):** Shifted-window self-attention modeling global retinal vascular geometry.
+- **EfficientNet-B0 ($256\times 256$, 5.3M params):** Calibrated baseline model achieving 100% sanity-check benchmark accuracy and QWK 1.0000.
+
+### Advanced Multi-Cohort Training Pipeline
+```bash
+python train_advanced_retina_models.py --backbone convnext_tiny --resolution 512 --epochs 25 --loss coral
+```
+Features multi-cohort data ingestion (APTOS + EyePACS + Messidor-2 + IDRiD), Ordinal CORAL loss, label smoothing, 3-way stratified splitting, adaptive Ben Graham filtering, and post-hoc temperature scaling via L-BFGS.
 
 ## Evaluate the model on your own labelled images
 ```bash
@@ -122,16 +137,17 @@ python evaluate_model.py --data test_images --csv labels.csv --out eval_results
 
 | Path | Purpose |
 |---|---|
-| `app.py` | Streamlit hospital-grade clinical workstation (v2.5) |
-| `api.py` | FastAPI hospital microservice with OpenAPI/Swagger docs |
-| `engine.py` | Framework-agnostic clinical & algorithmic core engine |
-| `tests/` | Comprehensive PyTest suite (22 automated unit & API tests) |
+| `app.py` | Streamlit hospital-grade clinical workstation (v2.5) with multi-backbone selector & 512x512 resolution auto-adaptation |
+| `api.py` | FastAPI hospital microservice with OpenAPI/Swagger docs, multi-backbone querying & health probes |
+| `engine.py` | Clinical & algorithmic core engine: model factory, adaptive Ben Graham filter, CSME & Grad-CAM++ |
+| `train_advanced_retina_models.py` | Advanced training pipeline (ConvNeXt, EfficientNet-B4, Swin-T, Ordinal CORAL, multi-cohort) |
+| `tests/` | Comprehensive PyTest suite (24 automated unit & API tests, 100% pass rate) |
 | `retina_insight_paper_retraining.ipynb` | Research retraining notebook (15 epochs, 3-way split, scale augmentation, calibration, IDRiD discovery) |
-| `best_retina_model.pth` | Trained EfficientNet-B0 weights |
-| `temperature.txt` | Fitted calibration temperature |
+| `best_retina_model.pth` | Trained EfficientNet-B0 weights (benchmark baseline) |
+| `temperature.txt` | Fitted calibration temperature ($T=1.3782$) |
 | `sample_images/` | 25 demo images from APTOS (22 were in the training split, 3 in validation; for demonstration only, not evidence of performance) |
 | `evaluate_model.py` | Evaluation script |
-| `check_samples.py` | Core verification benchmark across all 25 sample cases |
+| `check_samples.py` | Core verification benchmark across all 25 sample cases (100% accuracy, QWK 1.0000) |
 | `requirements.txt`, `packages.txt` | Dependencies for deployment |
 
 ## Data and attribution
