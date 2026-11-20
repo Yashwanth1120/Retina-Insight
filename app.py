@@ -1244,77 +1244,84 @@ def render_single_triage_ribbon(patient_info, pred_class, confidence, csme_res):
     stage_name = DIAGNOSIS_INFO.get(int(pred_class), {}).get("name", f"Stage {pred_class}")
     is_urgent = (int(pred_class) >= 3 or csme_res.get("key") == "High")
     urgency_border = "#EF4444" if is_urgent else "#F59E0B" if int(pred_class) in [1, 2] else "#10B981"
-    urgency_bg = "#FEF2F2" if is_urgent else "#FFFBEB" if int(pred_class) in [1, 2] else "#F0FDF4"
-    urgency_text = "#991B1B" if is_urgent else "#92400E" if int(pred_class) in [1, 2] else "#065F46"
+    urgency_bg = "#450a0a" if is_urgent else "#451a03" if int(pred_class) in [1, 2] else "#064e3b"
+    urgency_text = "#fca5a5" if is_urgent else "#fcd34d" if int(pred_class) in [1, 2] else "#6ee7b7"
 
     csme_color = csme_res.get("badge_color", "green")
     csme_border = "#EF4444" if csme_color == "red" else "#F59E0B" if csme_color == "orange" else "#10B981"
-    csme_bg = "#FEF2F2" if csme_color == "red" else "#FFFBEB" if csme_color == "orange" else "#F0FDF4"
-    csme_text = "#991B1B" if csme_color == "red" else "#92400E" if csme_color == "orange" else "#065F46"
-    pulse_cls = " pulse-urgent" if is_urgent else ""
+    csme_bg = "#450a0a" if csme_color == "red" else "#451a03" if csme_color == "orange" else "#064e3b"
+    csme_text = "#fca5a5" if csme_color == "red" else "#fcd34d" if csme_color == "orange" else "#6ee7b7"
 
-    ribbon_html = f"""
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0 16px 0;">
-      <!-- Card 1: Patient Context -->
-      <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">Patient Clinical Profile</div>
-        <div style="font-size: 14px; font-weight: 700; color: #0F172A; margin-top: 2px;">{html.escape(str(patient_info.get('name', 'Patient')))}</div>
-        <div style="font-size: 11px; color: #475569; margin-top: 2px;">
-          <span>{patient_info.get('age', 'N/A')} yrs &bull; {html.escape(str(patient_info.get('gender', 'N/A')))}</span> &bull; 
-          <span>T2DM ({patient_info.get('duration', 'N/A')} yrs)</span>
-        </div>
-        <div style="margin-top: 4px; font-size: 10.5px;">
-          <span style="background: {hba1c_badge}15; color: {hba1c_badge}; border: 1px solid {hba1c_badge}40; padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-            HbA1c: {hba1c_val:.1f}% ({hba1c_status})
-          </span>
-        </div>
-      </div>
+    c1, c2, c3, c4 = st.columns(4)
 
-      <!-- Card 2: Governing Severity -->
-      <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">AI Severity Grade</span>
-          <span style="font-size: 11px; font-family: monospace; font-weight: 700; color: #2563EB;">{confidence:.1f}% TTA</span>
-        </div>
-        <div style="font-size: 13.5px; font-weight: 700; color: #0F172A; margin-top: 2px;">
-          {html.escape(stage_name)}
-        </div>
-        <div style="width: 100%; background: #E2E8F0; height: 5px; border-radius: 9999px; margin-top: 6px; overflow: hidden;">
-          <div style="background: #2563EB; height: 5px; width: {min(100.0, max(0.0, confidence)):.1f}%;"></div>
-        </div>
-        <div style="font-size: 10.5px; color: #64748B; margin-top: 4px;">4-Fold Rotational &amp; Flip TTA Invariance</div>
-      </div>
+    with c1:
+        st.markdown(
+            f"""<div style="background: #1e293b; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Patient Clinical Profile</div>
+<div style="font-size: 15px; font-weight: 700; color: #f8fafc; margin-top: 3px;">{html.escape(str(patient_info.get('name', 'Patient')))}</div>
+<div style="font-size: 11.5px; color: #cbd5e1; margin-top: 3px;">
+<span>{patient_info.get('age', 'N/A')} yrs &bull; {html.escape(str(patient_info.get('gender', 'N/A')))}</span> &bull; <span>T2DM ({patient_info.get('duration', 'N/A')} yrs)</span>
+</div>
+<div style="margin-top: 6px;">
+<span style="background: {hba1c_badge}22; color: {hba1c_badge}; border: 1px solid {hba1c_badge}66; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+HbA1c: {hba1c_val:.1f}% ({hba1c_status})
+</span>
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
-      <!-- Card 3: Actionable Triage Urgency -->
-      <div class="{pulse_cls}" style="background: {urgency_bg}; border: 1.5px solid {urgency_border}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: {urgency_text}; letter-spacing: 0.05em;">Triage Urgency</span>
-          {'<span style="background: #EF4444; color: white; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">EXPEDITE</span>' if is_urgent else ''}
-        </div>
-        <div style="font-size: 13px; font-weight: 700; color: {urgency_text}; margin-top: 2px;">
-          {html.escape(proto['urgency'])}
-        </div>
-        <div style="font-size: 10.5px; color: {urgency_text}; opacity: 0.95; margin-top: 4px;">
-          ⏱️ <b>Timeline:</b> {html.escape(proto['timeline'])}
-        </div>
-      </div>
+    with c2:
+        st.markdown(
+            f"""<div style="background: #1e293b; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">AI Severity Grade</span>
+<span style="font-size: 11px; font-family: monospace; font-weight: 700; color: #38bdf8; background: #0284c722; border: 1px solid #0284c766; padding: 1px 6px; border-radius: 4px;">{confidence:.1f}% TTA</span>
+</div>
+<div style="font-size: 14px; font-weight: 700; color: #f8fafc; margin-top: 3px;">
+{html.escape(stage_name)}
+</div>
+<div style="width: 100%; background: #334155; height: 5px; border-radius: 9999px; margin-top: 6px; overflow: hidden;">
+<div style="background: #38bdf8; height: 5px; width: {min(100.0, max(0.0, confidence)):.1f}%;"></div>
+</div>
+<div style="font-size: 10.5px; color: #94a3b8; margin-top: 4px;">4-Fold Rotational &amp; Flip Invariance</div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
-      <!-- Card 4: ETDRS CSME Macular Threat Index -->
-      <div style="background: {csme_bg}; border: 1.5px solid {csme_border}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: {csme_text}; letter-spacing: 0.05em;">ETDRS CSME Macula</span>
-          <span style="font-size: 11px; font-family: monospace; font-weight: 700; color: {csme_text};">Score: {csme_res.get('score', 0):.1f}</span>
-        </div>
-        <div style="font-size: 13px; font-weight: 700; color: {csme_text}; margin-top: 2px;">
-          {html.escape(csme_res.get('status', 'CSME Low Risk'))}
-        </div>
-        <div style="font-size: 10.5px; color: {csme_text}; opacity: 0.95; margin-top: 4px;">
-          Fovea &lt;500µm: <b>{csme_res.get('foveal_exudates', 0)} px</b> | Macular ROI: <b>{csme_res.get('macular_exudates', 0)} px</b>
-        </div>
-      </div>
-    </div>
-    """
-    st.markdown(ribbon_html, unsafe_allow_html=True)
+    with c3:
+        st.markdown(
+            f"""<div style="background: {urgency_bg}; border: 1.5px solid {urgency_border}; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: {urgency_text}; letter-spacing: 0.05em;">Triage Urgency</span>
+{'<span style="background: #ef4444; color: white; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">EXPEDITE</span>' if is_urgent else ''}
+</div>
+<div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-top: 3px;">
+{html.escape(proto['urgency'])}
+</div>
+<div style="font-size: 11px; color: {urgency_text}; margin-top: 4px;">
+⏱️ <b>Timeline:</b> {html.escape(proto['timeline'])}
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
+
+    with c4:
+        st.markdown(
+            f"""<div style="background: {csme_bg}; border: 1.5px solid {csme_border}; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: {csme_text}; letter-spacing: 0.05em;">ETDRS CSME Macula</span>
+<span style="font-size: 10.5px; font-family: monospace; font-weight: 700; color: {csme_text}; background: rgba(0,0,0,0.25); padding: 1px 5px; border-radius: 4px;">Score: {csme_res.get('score', 0):.1f}</span>
+</div>
+<div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-top: 3px;">
+{html.escape(csme_res.get('status', 'CSME Low Risk'))}
+</div>
+<div style="font-size: 10.5px; color: {csme_text}; margin-top: 4px;">
+Fovea &lt;500µm: <b>{csme_res.get('foveal_exudates', 0)} px</b> | ROI: <b>{csme_res.get('macular_exudates', 0)} px</b>
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
 
 def render_bilateral_triage_ribbon(patient_info, pred_od, conf_od, csme_od, pred_os, conf_os, csme_os):
@@ -1322,7 +1329,7 @@ def render_bilateral_triage_ribbon(patient_info, pred_od, conf_od, csme_od, pred
     overall_stage = max(int(pred_od), int(pred_os))
     proto_overall = CLINICAL_PROTOCOLS.get(overall_stage, CLINICAL_PROTOCOLS[0])
     diff = abs(int(pred_od) - int(pred_os))
-    governing_eye = "OD (Right Eye)" if pred_od > pred_os else "OS (Left Eye)" if pred_os > pred_od else "Bilateral Concordant (Both Eyes)"
+    governing_eye = "OD (Right Eye)" if pred_od > pred_os else "OS (Left Eye)" if pred_os > pred_od else "Both Eyes (Concordant)"
 
     try:
         hba1c_val = float(patient_info.get("hba1c", 8.0))
@@ -1333,83 +1340,90 @@ def render_bilateral_triage_ribbon(patient_info, pred_od, conf_od, csme_od, pred
 
     is_urgent = (overall_stage >= 3 or csme_od.get("key") == "High" or csme_os.get("key") == "High")
     urgency_border = "#EF4444" if is_urgent else "#F59E0B" if overall_stage in [1, 2] else "#10B981"
-    urgency_bg = "#FEF2F2" if is_urgent else "#FFFBEB" if overall_stage in [1, 2] else "#F0FDF4"
-    urgency_text = "#991B1B" if is_urgent else "#92400E" if overall_stage in [1, 2] else "#065F46"
+    urgency_bg = "#450a0a" if is_urgent else "#451a03" if overall_stage in [1, 2] else "#064e3b"
+    urgency_text = "#fca5a5" if is_urgent else "#fcd34d" if overall_stage in [1, 2] else "#6ee7b7"
 
     asym_color = "#10B981" if diff == 0 else "#F59E0B" if diff == 1 else "#EF4444"
     asym_label = "Concordant (Symmetric)" if diff == 0 else f"Mild Asymmetry (Δ={diff})" if diff == 1 else f"Marked Red Flag (Δ={diff} Stages)"
-    pulse_cls = " pulse-urgent" if is_urgent else ""
 
     od_status = csme_od.get('status', 'CSME Low')
     os_status = csme_os.get('status', 'CSME Low')
     od_color = '#EF4444' if csme_od.get('key')=='High' else '#F59E0B' if csme_od.get('key')=='Moderate' else '#10B981'
     os_color = '#EF4444' if csme_os.get('key')=='High' else '#F59E0B' if csme_os.get('key')=='Moderate' else '#10B981'
 
-    ribbon_html = f"""
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0 16px 0;">
-      <!-- Card 1: Patient Profile -->
-      <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">Patient Clinical Profile</div>
-        <div style="font-size: 14px; font-weight: 700; color: #0F172A; margin-top: 2px;">{html.escape(str(patient_info.get('name', 'Patient')))}</div>
-        <div style="font-size: 11px; color: #475569; margin-top: 2px;">
-          <span>{patient_info.get('age', 'N/A')} yrs &bull; {html.escape(str(patient_info.get('gender', 'N/A')))}</span> &bull; 
-          <span>T2DM ({patient_info.get('duration', 'N/A')} yrs)</span>
-        </div>
-        <div style="margin-top: 4px; font-size: 10.5px;">
-          <span style="background: {hba1c_badge}15; color: {hba1c_badge}; border: 1px solid {hba1c_badge}40; padding: 2px 7px; border-radius: 4px; font-weight: 600;">
-            HbA1c: {hba1c_val:.1f}% ({hba1c_status})
-          </span>
-        </div>
-      </div>
+    c1, c2, c3, c4 = st.columns(4)
 
-      <!-- Card 2: Bilateral Harmony & Asymmetry -->
-      <div style="background: #F8FAFC; border: 1.5px solid {asym_color}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">Bilateral Symmetry</span>
-          <span style="font-size: 11px; font-weight: 700; color: {asym_color}; font-family: monospace;">Δ = {diff}</span>
-        </div>
-        <div style="font-size: 12.5px; font-weight: 700; color: {asym_color}; margin-top: 2px;">
-          {asym_label}
-        </div>
-        <div style="font-size: 11px; color: #334155; margin-top: 4px;">
-          <b>OD:</b> Stage {pred_od} ({conf_od:.1f}%) &bull; <b>OS:</b> Stage {pred_os} ({conf_os:.1f}%)
-        </div>
-        <div style="font-size: 10.5px; color: #64748B; margin-top: 2px;">Governing Eye: <b>{governing_eye}</b></div>
-      </div>
+    with c1:
+        st.markdown(
+            f"""<div style="background: #1e293b; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Patient Clinical Profile</div>
+<div style="font-size: 15px; font-weight: 700; color: #f8fafc; margin-top: 3px;">{html.escape(str(patient_info.get('name', 'Patient')))}</div>
+<div style="font-size: 11.5px; color: #cbd5e1; margin-top: 3px;">
+<span>{patient_info.get('age', 'N/A')} yrs &bull; {html.escape(str(patient_info.get('gender', 'N/A')))}</span> &bull; <span>T2DM ({patient_info.get('duration', 'N/A')} yrs)</span>
+</div>
+<div style="margin-top: 6px;">
+<span style="background: {hba1c_badge}22; color: {hba1c_badge}; border: 1px solid {hba1c_badge}66; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600;">
+HbA1c: {hba1c_val:.1f}% ({hba1c_status})
+</span>
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
-      <!-- Card 3: Governing Triage Urgency -->
-      <div class="{pulse_cls}" style="background: {urgency_bg}; border: 1.5px solid {urgency_border}; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: {urgency_text}; letter-spacing: 0.05em;">Overall Patient Triage</span>
-          {'<span style="background: #EF4444; color: white; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">EXPEDITE</span>' if is_urgent else ''}
-        </div>
-        <div style="font-size: 13px; font-weight: 700; color: {urgency_text}; margin-top: 2px;">
-          {html.escape(proto_overall['urgency'])}
-        </div>
-        <div style="font-size: 10.5px; color: {urgency_text}; opacity: 0.95; margin-top: 4px;">
-          ⏱️ <b>Timeline:</b> {html.escape(proto_overall['timeline'])}
-        </div>
-      </div>
+    with c2:
+        st.markdown(
+            f"""<div style="background: #1e293b; border: 1.5px solid {asym_color}; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Bilateral Symmetry</span>
+<span style="font-size: 11px; font-weight: 700; color: {asym_color}; font-family: monospace; background: {asym_color}22; border: 1px solid {asym_color}66; padding: 1px 6px; border-radius: 4px;">Δ = {diff}</span>
+</div>
+<div style="font-size: 13.5px; font-weight: 700; color: {asym_color}; margin-top: 3px;">
+{asym_label}
+</div>
+<div style="font-size: 11.5px; color: #cbd5e1; margin-top: 3px;">
+<b>OD:</b> Stage {pred_od} ({conf_od:.1f}%) &bull; <b>OS:</b> Stage {pred_os} ({conf_os:.1f}%)
+</div>
+<div style="font-size: 10.5px; color: #94a3b8; margin-top: 2px;">Governing: <strong style="color: #f8fafc;">{governing_eye}</strong></div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
-      <!-- Card 4: Bilateral CSME Threat -->
-      <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">Dual Macular Assessment</span>
-          <span style="font-size: 10.5px; font-weight: 700; color: #2563EB;">ETDRS Rule</span>
-        </div>
-        <div style="font-size: 11.5px; color: #1E293B; margin-top: 3px;">
-          <b>OD:</b> <span style="font-weight: 600; color: {od_color};">{html.escape(od_status)}</span>
-        </div>
-        <div style="font-size: 11.5px; color: #1E293B; margin-top: 2px;">
-          <b>OS:</b> <span style="font-weight: 600; color: {os_color};">{html.escape(os_status)}</span>
-        </div>
-        <div style="font-size: 10px; color: #64748B; margin-top: 4px;">
-          Exudates: OD {csme_od.get('macular_exudates', 0)} px &bull; OS {csme_os.get('macular_exudates', 0)} px
-        </div>
-      </div>
-    </div>
-    """
-    st.markdown(ribbon_html, unsafe_allow_html=True)
+    with c3:
+        st.markdown(
+            f"""<div style="background: {urgency_bg}; border: 1.5px solid {urgency_border}; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: {urgency_text}; letter-spacing: 0.05em;">Overall Patient Triage</span>
+{'<span style="background: #ef4444; color: white; padding: 1px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">EXPEDITE</span>' if is_urgent else ''}
+</div>
+<div style="font-size: 14px; font-weight: 700; color: #ffffff; margin-top: 3px;">
+{html.escape(proto_overall['urgency'])}
+</div>
+<div style="font-size: 11px; color: {urgency_text}; margin-top: 4px;">
+⏱️ <b>Timeline:</b> {html.escape(proto_overall['timeline'])}
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
+
+    with c4:
+        st.markdown(
+            f"""<div style="background: #1e293b; border: 1.5px solid #334155; border-radius: 10px; padding: 12px 14px; min-height: 118px; box-sizing: border-box;">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.05em;">Dual Macular Assessment</span>
+<span style="font-size: 10px; font-weight: 700; color: #38bdf8; background: #0284c722; border: 1px solid #0284c766; padding: 1px 5px; border-radius: 4px;">ETDRS</span>
+</div>
+<div style="font-size: 12px; color: #cbd5e1; margin-top: 3px;">
+<b>OD:</b> <span style="font-weight: 600; color: {od_color};">{html.escape(od_status)}</span>
+</div>
+<div style="font-size: 12px; color: #cbd5e1; margin-top: 2px;">
+<b>OS:</b> <span style="font-weight: 600; color: {os_color};">{html.escape(os_status)}</span>
+</div>
+<div style="font-size: 10.5px; color: #94a3b8; margin-top: 4px;">
+Exudates: OD {csme_od.get('macular_exudates', 0)} px &bull; OS {csme_os.get('macular_exudates', 0)} px
+</div>
+</div>""",
+            unsafe_allow_html=True
+        )
 
 
 def render_clinician_signoff_section(initial_notes, key_prefix="single"):
@@ -1843,19 +1857,19 @@ if screening_mode == "Single Fundus Scan":
             # CSME Macular Edema Risk Assessment Card
             csme_color = csme_res.get("badge_color", "green")
             border_hex = "#EF4444" if csme_color == "red" else "#F59E0B" if csme_color == "orange" else "#10B981"
-            bg_hex = "#FEE2E2" if csme_color == "red" else "#FEF3C7" if csme_color == "orange" else "#ECFDF5"
-            text_hex = "#991B1B" if csme_color == "red" else "#92400E" if csme_color == "orange" else "#065F46"
+            bg_hex = "#450a0a" if csme_color == "red" else "#451a03" if csme_color == "orange" else "#064e3b"
+            text_hex = "#fca5a5" if csme_color == "red" else "#fcd34d" if csme_color == "orange" else "#6ee7b7"
 
             st.markdown(
                 f"""<div style="background-color: {bg_hex}; border: 1.5px solid {border_hex}; border-radius: 8px; padding: 12px 16px; margin: 12px 0;">
-                <h4 style="margin: 0 0 6px 0; color: {text_hex};">🎯 Macular Assessment: {csme_res['status']}</h4>
-                <p style="margin: 0; color: #1E293B; font-size: 13.5px;">
-                <b>CSME Risk Score:</b> <code>{csme_res['score']:.1f}/100</code> &nbsp;|&nbsp; 
-                <b>Central Foveal Exudates (&lt;500 μm):</b> <code>{csme_res['foveal_exudates']} px</code> &nbsp;|&nbsp; 
-                <b>Macular Ring Exudates (1-2 DD):</b> <code>{csme_res['macular_exudates']} px</code>
-                </p>
-                <p style="margin: 6px 0 0 0; color: {text_hex}; font-size: 13px;"><b>Clinical Directive:</b> {csme_res['action']}</p>
-                </div>""",
+<h4 style="margin: 0 0 6px 0; color: #ffffff;">🎯 Macular Assessment: {csme_res['status']}</h4>
+<p style="margin: 0; color: #cbd5e1; font-size: 13.5px;">
+<b>CSME Risk Score:</b> <code>{csme_res['score']:.1f}/100</code> &nbsp;|&nbsp; 
+<b>Central Foveal Exudates (&lt;500 μm):</b> <code>{csme_res['foveal_exudates']} px</code> &nbsp;|&nbsp; 
+<b>Macular Ring Exudates (1-2 DD):</b> <code>{csme_res['macular_exudates']} px</code>
+</p>
+<p style="margin: 6px 0 0 0; color: {text_hex}; font-size: 13px;"><b>Clinical Directive:</b> {csme_res['action']}</p>
+</div>""",
                 unsafe_allow_html=True
             )
 
@@ -2200,9 +2214,10 @@ elif screening_mode == "Clinical Bilateral Screening (OD & OS)":
             # Comparative Probability Bar Chart
             st.markdown("##### 📊 Comparative Stage Probability Distribution (OD vs. OS)")
             chart_df = pd.DataFrame({
-                "Right Eye (OD) %": [round(float(probs_od[i] * 100), 2) for i in range(5)],
-                "Left Eye (OS) %": [round(float(probs_os[i] * 100), 2) for i in range(5)]
-            }, index=[f"Stage {i}" for i in range(5)])
+                "OD (Right Eye) %": [round(float(probs_od[i] * 100), 2) for i in range(5)],
+                "OS (Left Eye) %": [round(float(probs_os[i] * 100), 2) for i in range(5)]
+            }, index=["Stage 0", "Stage 1", "Stage 2", "Stage 3", "Stage 4"])
+            chart_df.index.name = "DR Stage"
             st.bar_chart(chart_df)
 
             # Section 3: Explainable AI (Grad-CAM++)
